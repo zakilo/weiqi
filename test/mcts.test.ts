@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BLACK, Board, WHITE, idx } from '../src/core/board';
 import type { KataGoNet, NetEval } from '../src/engine/net';
-import { DEFAULT_MCTS_CONFIG, MctsSearch, PASS } from '../src/engine/mcts';
+import { DEFAULT_MCTS_CONFIG, MctsSearch, MctsSession, PASS } from '../src/engine/mcts';
 import type { EncodedFeatures } from '../src/engine/features';
 import { NO_PREV_HASH } from '../src/core/rules';
 
@@ -36,6 +36,7 @@ function makeMockNet(options: {
 }
 
 const config = (overrides: Partial<typeof DEFAULT_MCTS_CONFIG> = {}) => ({
+  ...DEFAULT_MCTS_CONFIG,
   playouts: 120,
   batchSize: 8,
   temperature: 0,
@@ -120,5 +121,44 @@ describe('MctsSearch', () => {
     expect(result.playoutsDone).toBe(80);
     // 每次批量调用评估的输入数应 >=1 且 <= batchSize
     expect(calls).toBeGreaterThanOrEqual(Math.ceil(80 / 8));
+  });
+});
+
+describe('MctsSession(增量运行)', () => {
+  it('分次 run 的统计单调递增,总数与最终结果一致', async () => {
+    const net = makeMockNet({ movePos: idx(9, 9), moveLogit: 10 });
+    const session = await MctsSession.create(net, new Board(), BLACK, [], 3.75, NO_PREV_HASH, config());
+
+    const p1 = await session.run(30);
+    expect(p1.playoutsDone).toBe(30);
+    expect(p1.bestMove).toBe(idx(9, 9));
+    const p2 = await session.run(40);
+    expect(p2.playoutsDone).toBe(70);
+    const p3 = await session.run(50);
+    expect(p3.playoutsDone).toBe(120);
+
+    const result = session.result();
+    expect(result.playoutsDone).toBe(120);
+    let total = 0;
+    for (const v of result.visitCounts) total += v;
+    expect(total).toBe(120);
+    expect(result.bestMove).toBe(idx(9, 9));
+    expect(result.visitCounts[idx(9, 9)]).toBeGreaterThan(60);
+    expect(result.rootValue).toBeGreaterThan(0);
+    expect(result.rootValue).toBeLessThan(1);
+  });
+
+  it('增量运行保持终局语义(双虚着数子)', async () => {
+    const net = makeMockNet({ passLogit: 10, moveLogit: -100, winProb: 0 });
+    const recentMoves = [{ stone: BLACK, pos: null }] as const;
+    const session = await MctsSession.create(net, new Board(), WHITE, recentMoves, 3.75, NO_PREV_HASH, config());
+
+    await session.run(60);
+    const p = await session.run(60);
+    expect(p.playoutsDone).toBe(120);
+    const result = session.result();
+    expect(result.bestMove).toBe(PASS);
+    expect(result.visitCounts[PASS]).toBeGreaterThan(60);
+    expect(result.rootValue).toBeGreaterThan(0.8);
   });
 });

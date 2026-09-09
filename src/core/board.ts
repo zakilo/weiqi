@@ -104,4 +104,16 @@ export class Board {
     copy.cells.set(this.cells);
     return copy;
   }
+
+  /** 格子快照(跨线程传输) */
+  cellsCopy(): Int8Array {
+    return this.cells.slice();
+  }
+
+  /** 从格子快照重建 */
+  static fromCells(cells: Int8Array): Board {
+    const b = new Board();
+    b.cells.set(cells);
+    return b;
+  }
 }

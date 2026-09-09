@@ -54,6 +54,15 @@ export interface MctsSearchResult {
   playoutsDone: number;
 }
 
+export interface MctsProgress {
+  /** 已完成的推理次数 */
+  playoutsDone: number;
+  /** 根局面行棋方视角的搜索价值 */
+  rootValue: number;
+  /** 当前最佳着法(0..360 或 361=虚着) */
+  bestMove: number;
+}
+
 interface MctsNode {
   parent: MctsNode | null;
   /** 到达本节点的着法:-1=根,0..360=落点,361=虚着 */
@@ -127,6 +136,48 @@ export class MctsSearch {
     komi: number = KOMI_AREA,
     prevHash: bigint = NO_PREV_HASH,
   ): Promise<MctsSearchResult> {
+    const session = await MctsSession.create(this.net, board, currentPlayer, recentMoves, komi, prevHash, this.config);
+    await session.run(this.config.playouts);
+    return session.result();
+  }
+}
+
+/**
+ * 一次搜索会话:建根并完成根评估后,可反复增量运行
+ * (供持续分析/变化线使用)。每次 run 返回进度快照,result 汇总最终统计。
+ */
+export class MctsSession {
+  private readonly config: MctsConfig;
+  private readonly net: KataGoNet;
+  private readonly komi: number;
+  private readonly root: MctsNode;
+  private readonly rootEvalWinProb: number;
+  private playoutsTotal = 0;
+
+  private constructor(
+    net: KataGoNet,
+    config: MctsConfig,
+    komi: number,
+    root: MctsNode,
+    rootEvalWinProb: number,
+  ) {
+    this.net = net;
+    this.config = config;
+    this.komi = komi;
+    this.root = root;
+    this.rootEvalWinProb = rootEvalWinProb;
+  }
+
+  /** 建根、完成根评估与扩展(含 Dirichlet 噪声) */
+  static async create(
+    net: KataGoNet,
+    board: Board,
+    currentPlayer: Stone,
+    recentMoves: readonly EncodedMove[],
+    komi: number,
+    prevHash: bigint,
+    config: MctsConfig,
+  ): Promise<MctsSession> {
     const root: MctsNode = {
       parent: null,
       pos: -1,
@@ -144,27 +195,32 @@ export class MctsSearch {
     };
 
     // 根节点先行评估与扩展
-    const rootEval = await this.net.evaluate(encodeFeatures(root.board!, root.stone, root.lastMoves, { komi }));
-    root.children = this.buildChildren(root, rootEval, true);
+    const rootEval = await net.evaluate(encodeFeatures(root.board!, root.stone, root.lastMoves, { komi }));
+    const session = new MctsSession(net, config, komi, root, rootEval.winProb);
+    session.root.children = session.buildChildren(session.root, rootEval, true);
+    return session;
+  }
 
-    const numBatches = Math.ceil(this.config.playouts / this.config.batchSize);
-    let playoutsDone = 0;
-    for (let b = 0; b < numBatches && playoutsDone < this.config.playouts; b++) {
-      const count = Math.min(this.config.batchSize, this.config.playouts - playoutsDone);
+  /** 增量运行 playouts 次推理,返回进度快照 */
+  async run(playouts: number): Promise<MctsProgress> {
+    const numBatches = Math.ceil(playouts / this.config.batchSize);
+    let done = 0;
+    for (let b = 0; b < numBatches && done < playouts; b++) {
+      const count = Math.min(this.config.batchSize, playouts - done);
       const leaves: MctsNode[] = [];
       for (let i = 0; i < count; i++) {
-        const leaf = this.select(root);
+        const leaf = this.select(this.root);
         this.ensureState(leaf);
         if (leaf.terminalValue !== undefined) {
           this.backup(leaf, leaf.terminalValue);
-          playoutsDone++;
+          done++;
           continue;
         }
         if (leaf.depth >= this.config.maxDepth) {
           // 超深度:按数子终局,不再展开
           leaf.terminalValue = this.terminalScoreValue(leaf.board!, leaf.stone);
           this.backup(leaf, leaf.terminalValue);
-          playoutsDone++;
+          done++;
           continue;
         }
         leaf.isExpanding = true;
@@ -172,29 +228,54 @@ export class MctsSearch {
       }
 
       if (leaves.length > 0) {
-        const inputs = leaves.map((l) => encodeFeatures(l.board!, l.stone, l.lastMoves, { komi }));
+        const inputs = leaves.map((l) => encodeFeatures(l.board!, l.stone, l.lastMoves, { komi: this.komi }));
         const results = await this.net.evaluateBatch(inputs);
         for (let i = 0; i < leaves.length; i++) {
           const leaf = leaves[i]!;
           leaf.isExpanding = false;
           leaf.children = this.buildChildren(leaf, results[i]!, false);
           this.backup(leaf, results[i]!.winProb);
-          playoutsDone++;
+          done++;
         }
       }
     }
+    this.playoutsTotal += done;
+    return this.progress();
+  }
 
-    const visitCounts = new Float32Array(PASS + 1);
-    for (const child of root.children?.values() ?? []) {
-      visitCounts[child.pos] = child.visits;
-    }
+  /** 当前统计快照(不终止搜索) */
+  progress(): MctsProgress {
+    const visitCounts = this.visitCounts();
+    return {
+      playoutsDone: this.playoutsTotal,
+      rootValue: this.rootValue(),
+      bestMove: this.pickMove(visitCounts),
+    };
+  }
 
+  /** 汇总最终结果 */
+  result(): MctsSearchResult {
+    const visitCounts = this.visitCounts();
     return {
       visitCounts,
-      rootValue: root.visits > 0 ? root.winSum / root.visits : rootEval.winProb,
+      rootValue: this.rootValue(),
       bestMove: this.pickMove(visitCounts),
-      playoutsDone,
+      playoutsDone: this.playoutsTotal,
     };
+  }
+
+  /** 每个着法(0..360 落点,361=虚着)的访问次数 */
+  private visitCounts(): Float32Array {
+    const visitCounts = new Float32Array(PASS + 1);
+    for (const child of this.root.children?.values() ?? []) {
+      visitCounts[child.pos] = child.visits;
+    }
+    return visitCounts;
+  }
+
+  /** 根局面行棋方视角的当前价值(无访问时回退根评估) */
+  private rootValue(): number {
+    return this.root.visits > 0 ? this.root.winSum / this.root.visits : this.rootEvalWinProb;
   }
 
   /** 沿树下降到叶子(未扩展或终局节点) */
