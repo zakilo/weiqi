@@ -87,6 +87,7 @@ app.innerHTML = `
             </div>
           </div>
           <div id="model-status" class="g-empty">检查中…</div>
+          <a id="model-manual-link" class="model-hint" target="_blank" rel="noopener" href="${MODEL_B18.urls[0]}">网络下载受限?点此在浏览器中打开权重文件,再用「导入」加载</a>
           <input id="model-file-input" type="file" accept=".bin,.bin.gz,.gz" class="hidden" />
         </div>
       </aside>
@@ -421,8 +422,9 @@ canvas.addEventListener('mouseleave', () => {
 
 document.querySelector('#btn-pass')!.addEventListener('click', () => {
   if (aiPlayer.thinking || isAiTurn()) return;
+  const passer = game.currentStone === BLACK ? WHITE : BLACK;
   game.pass();
-  messageEl.textContent = game.isFinished ? '双方虚着,终局数子' : `${stoneName(game.currentStone)}虚着`;
+  messageEl.textContent = game.isFinished ? '双方虚着,终局数子' : `${stoneName(passer)}虚着`;
   refresh();
   void maybeAiMove();
 });
@@ -732,7 +734,7 @@ document.querySelector('#btn-load-model')!.addEventListener('click', async () =>
     messageEl.textContent = `模型「${MODEL_B18.name}」加载完成(${aiPlayer.backendLabel})`;
   } catch (e) {
     setModelStatus('下载失败');
-    messageEl.textContent = `模型加载失败:${String(e)}`;
+    messageEl.textContent = `模型下载失败:${String(e)}。可点侧栏「手动下载」链接在浏览器中打开权重文件,再用「导入」按钮加载`;
   } finally {
     modelLoading = false;
     setLoadBar(false, 0, '');

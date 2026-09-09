@@ -249,6 +249,17 @@ body {
   border-top: 1px dashed #c9b998;
 }
 
+.model-hint {
+  font-size: 11px;
+  color: #888;
+  line-height: 1.5;
+  text-decoration: underline dotted;
+}
+
+.model-hint:hover {
+  color: #a0522d;
+}
+
 /* 回放 AI 分析面板 */
 .analysis-panel {
   display: flex;
