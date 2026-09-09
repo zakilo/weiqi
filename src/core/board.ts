@@ -91,6 +91,11 @@ export class Board {
     return liberties.size;
   }
 
+  /** 清除某点(死子移除、悔棋重放) */
+  clear(i: number): void {
+    this.cells[i] = EMPTY;
+  }
+
   /** 深拷贝(模拟落子、悔棋、分析等场景) */
   clone(): Board {
     const copy = new Board();
