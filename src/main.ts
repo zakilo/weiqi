@@ -14,6 +14,11 @@ import {
   MODEL_B18,
 } from './engine/model-loader';
 import { AiPlayer, levelOf } from './engine/ai-player';
+import { AnalysisClient } from './engine/analysis-client';
+import { AnalysisSnapshot, AnalysisState } from './engine/analysis-engine';
+import { VARIATION_DEPTH, VARIATION_PLAYOUTS } from './engine/analysis-engine';
+import { KOMI_AREA } from './core/scoring';
+import { PASS } from './engine/mcts';
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 
@@ -65,6 +70,14 @@ app.innerHTML = `
         </div>
         <ul id="game-list" class="game-list"></ul>
         <input id="file-input" type="file" accept=".sgf" class="hidden" />
+        <div id="analysis-panel" class="analysis-panel hidden">
+          <div class="library-head">
+            <h2>AI 分析</h2>
+            <span id="analysis-status" class="dim"></span>
+          </div>
+          <ul id="candidate-list" class="candidate-list"></ul>
+          <div id="variation-list" class="variation-list"></div>
+        </div>
         <div class="model-panel">
           <div class="library-head">
             <h2>AI 模型</h2>
@@ -103,6 +116,18 @@ let autoplayTimer: ReturnType<typeof setInterval> | null = null;
 /** 对弈模式:双人 / AI 执白 / AI 执黑 */
 let vsMode: 'human' | 'ai-white' | 'ai-black' = 'human';
 const aiPlayer = new AiPlayer();
+
+/** 回放分析:Worker 客户端与展示状态 */
+const analysisClient = new AnalysisClient();
+let analysisSnapshot: AnalysisSnapshot | null = null;
+let variationLine: number[] = [];
+let analysisTimer: ReturnType<typeof setTimeout> | null = null;
+let analysisBackend = '';
+
+const analysisPanel = document.querySelector<HTMLDivElement>('#analysis-panel')!;
+const analysisStatusEl = document.querySelector<HTMLSpanElement>('#analysis-status')!;
+const candidateListEl = document.querySelector<HTMLUListElement>('#candidate-list')!;
+const variationListEl = document.querySelector<HTMLDivElement>('#variation-list')!;
 /** 是否轮到 AI 行棋(且非回放模式) */
 function isAiTurn(): boolean {
   if (mode !== 'play' || game.isFinished) return false;
@@ -130,7 +155,21 @@ const REASONS: Record<string, string> = {
 function refresh(): void {
   const displayBoard = mode === 'replay' && replay ? replay.board() : game.getBoard();
   const lastMove = mode === 'replay' && replay ? replay.lastPlayPos() : game.getLastPlayPos();
-  board.setState({ board: displayBoard, lastMove, ghost });
+  const analysis =
+    mode === 'replay' && replay
+      ? {
+          candidates: (analysisSnapshot?.candidates ?? []).map((c) => ({ pos: c.pos, winRate: c.winRate })),
+          ...(variationLine.length > 0
+            ? {
+                variation: {
+                  stone: replay.nextStone(),
+                  moves: variationLine.map((pos, i) => ({ pos, order: i + 1 })),
+                },
+              }
+            : {}),
+        }
+      : undefined;
+  board.setState({ board: displayBoard, lastMove, ghost, analysis });
 
   const replayControls = document.querySelector<HTMLDivElement>('#replay-controls')!;
   const playButtons = [
@@ -224,6 +263,135 @@ async function maybeAiMove(): Promise<void> {
   }
 }
 
+// ---- 回放暂停分析(Worker 持续分析 + 变化线) ----
+
+/** 当前回放视角的分析局面 */
+function analysisState(): AnalysisState | null {
+  if (!replay) return null;
+  const recentMoves = replay.recentMoves(5).map((m) => ({
+    stone: m.stone as Stone,
+    pos: m.col === null || m.row === null ? null : idx(m.col, m.row),
+  }));
+  return {
+    board: replay.board(),
+    stone: replay.nextStone(),
+    recentMoves,
+    komi: KOMI_AREA,
+    prevHash: replay.prevHash(),
+  };
+}
+
+/** 停止分析并清空展示 */
+function stopAnalysis(): void {
+  if (analysisTimer !== null) {
+    clearTimeout(analysisTimer);
+    analysisTimer = null;
+  }
+  analysisClient.stop();
+  analysisSnapshot = null;
+  variationLine = [];
+  analysisStatusEl.textContent = '';
+  candidateListEl.innerHTML = '';
+  variationListEl.innerHTML = '';
+}
+
+/** 延迟启动分析(跳步连续触发时防抖) */
+function scheduleAnalysis(): void {
+  if (!replay) return;
+  if (analysisTimer !== null) clearTimeout(analysisTimer);
+  analysisTimer = setTimeout(() => {
+    analysisTimer = null;
+    void startAnalysis();
+  }, 250);
+}
+
+/** 读取缓存模型并让 Worker 分析当前局面 */
+async function startAnalysis(): Promise<void> {
+  const state = analysisState();
+  if (!state) return;
+  try {
+    const bytes = await getCachedModelBytes(MODEL_B18.id);
+    if (!bytes) {
+      analysisStatusEl.textContent = '未缓存模型';
+      return;
+    }
+    analysisStatusEl.textContent = '准备中…';
+    const backend = await analysisClient.ensure(bytes);
+    analysisBackend = backend;
+  } catch (e) {
+    analysisStatusEl.textContent = '分析不可用';
+    return;
+  }
+  // 若期间已离开回放/跳步,放弃
+  if (!replay) return;
+  analysisClient.analyze(state);
+}
+
+analysisClient.callbacks.onSnapshot = (snap) => {
+  analysisSnapshot = snap;
+  renderCandidateList();
+  refresh();
+};
+analysisClient.callbacks.onVariationStep = (move, index) => {
+  variationLine[index] = move;
+  renderVariationList();
+  refresh();
+};
+analysisClient.callbacks.onVariationDone = (line) => {
+  variationLine = line;
+  renderVariationList();
+  refresh();
+};
+analysisClient.callbacks.onError = (message) => {
+  analysisStatusEl.textContent = `失败:${message}`;
+};
+
+function renderCandidateList(): void {
+  candidateListEl.innerHTML = '';
+  if (!analysisSnapshot) return;
+  analysisStatusEl.textContent = `${analysisSnapshot.playouts} 次推理 · ${analysisBackend}`;
+  for (const c of analysisSnapshot.candidates) {
+    const li = document.createElement('li');
+    li.dataset.pos = String(c.pos);
+    li.title = '点击查看 15 步变化';
+    const name = c.pos === PASS ? '虚着' : coordText(colOf(c.pos), rowOf(c.pos));
+    li.innerHTML = `<span class="c-pos">${name}</span><span class="c-rate">${(c.winRate * 100).toFixed(1)}%</span><span class="c-visits">${c.visits}</span>`;
+    candidateListEl.appendChild(li);
+  }
+}
+
+function renderVariationList(): void {
+  variationListEl.innerHTML = '';
+  if (variationLine.length === 0) return;
+  const head = document.createElement('div');
+  head.className = 'v-head';
+  head.textContent = `变化(${variationLine.length} 手)`;
+  variationListEl.appendChild(head);
+  for (let i = 0; i < variationLine.length; i++) {
+    const pos = variationLine[i]!;
+    const span = document.createElement('span');
+    span.className = 'v-move';
+    span.textContent = pos === PASS ? '虚着' : coordText(colOf(pos), rowOf(pos));
+    variationListEl.appendChild(span);
+  }
+}
+
+/** 点击候选着法 → 展开 15 步变化线 */
+candidateListEl.addEventListener('click', (e) => {
+  if (!replay || mode !== 'replay') return;
+  const li = (e.target as HTMLElement).closest<HTMLLIElement>('li[data-pos]');
+  if (!li) return;
+  const pos = Number(li.dataset.pos);
+  if (!Number.isInteger(pos)) return;
+  const state = analysisState();
+  if (!state) return;
+  variationLine = [];
+  renderVariationList();
+  analysisStatusEl.textContent = '变化线展开中…';
+  analysisClient.requestVariation(state, pos, VARIATION_DEPTH, VARIATION_PLAYOUTS);
+  refresh();
+});
+
 // 点击落子(仅对弈模式)
 canvas.addEventListener('click', (e) => {
   if (mode !== 'play' || aiPlayer.thinking || isAiTurn()) return;
@@ -246,8 +414,9 @@ canvas.addEventListener('mousemove', (e) => {
   board.setState({ board: game.getBoard(), lastMove: game.getLastPlayPos(), ghost });
 });
 canvas.addEventListener('mouseleave', () => {
+  if (mode !== 'play') return;
   ghost = null;
-  board.setState({ board: game.getBoard(), lastMove: game.getLastPlayPos(), ghost });
+  refresh();
 });
 
 document.querySelector('#btn-pass')!.addEventListener('click', () => {
@@ -281,34 +450,48 @@ function enterReplay(line: readonly SgfLineMove[], truncated = false): void {
   } else {
     messageEl.textContent = '进入回放模式,可逐步查看';
   }
+  stopAnalysis();
+  analysisPanel.classList.remove('hidden');
   refresh();
+  scheduleAnalysis(); // 暂停态开始分析
 }
 
 document.querySelector('#btn-first')!.addEventListener('click', () => {
   replay?.start();
   refresh();
+  stopAnalysis();
+  scheduleAnalysis();
 });
 document.querySelector('#btn-prev')!.addEventListener('click', () => {
   replay?.step(-1);
   refresh();
+  stopAnalysis();
+  scheduleAnalysis();
 });
 document.querySelector('#btn-next')!.addEventListener('click', () => {
   stopAutoplay();
   replay?.step(1);
   refresh();
+  stopAnalysis();
+  scheduleAnalysis();
 });
 document.querySelector('#btn-last')!.addEventListener('click', () => {
   replay?.end();
   refresh();
+  stopAnalysis();
+  scheduleAnalysis();
 });
 document.querySelector('#btn-autoplay')!.addEventListener('click', () => {
   if (!replay) return;
   if (autoplayTimer !== null) {
     stopAutoplay();
+    scheduleAnalysis(); // 暂停即分析
   } else {
+    stopAnalysis();
     autoplayTimer = setInterval(() => {
       if (!replay || replay.isAtEnd()) {
         stopAutoplay();
+        scheduleAnalysis(); // 播到末手暂停并分析
       } else {
         replay.step(1);
       }
@@ -321,6 +504,8 @@ document.querySelector('#btn-resume')!.addEventListener('click', () => {
   if (!replay) return;
   const resumePos = replay.pos;
   stopAutoplay();
+  stopAnalysis();
+  analysisPanel.classList.add('hidden');
   game.loadMoves(replay.lineMoves().slice(0, resumePos));
   mode = 'play';
   replay = null;
@@ -481,6 +666,8 @@ document.querySelector('#btn-undo')!.addEventListener('click', () => {
 });
 document.querySelector('#btn-restart')!.addEventListener('click', () => {
   stopAutoplay();
+  stopAnalysis();
+  analysisPanel.classList.add('hidden');
   mode = 'play';
   replay = null;
   game.restart();
@@ -584,6 +771,7 @@ async function loadAiModel(bytes: ArrayBuffer): Promise<void> {
   setModelStatus('解析权重中…');
   await aiPlayer.loadModelBytes(new Uint8Array(bytes));
   setModelStatus(`就绪 ${mb(bytes.byteLength)} · ${aiPlayer.backendLabel} · ${aiPlayer.modelName ?? ''}`);
+  scheduleAnalysis(); // 若正在回放暂停,让分析 Worker 也加载模型
 }
 
 void refreshModelStatus();

@@ -249,6 +249,80 @@ body {
   border-top: 1px dashed #c9b998;
 }
 
+/* 回放 AI 分析面板 */
+.analysis-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px dashed #c9b998;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.analysis-panel .dim {
+  color: #888;
+  font-size: 11px;
+}
+
+.candidate-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.candidate-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: #eef4fa;
+  cursor: pointer;
+}
+
+.candidate-list li:hover {
+  background: #dde9f5;
+}
+
+.c-pos {
+  flex: 1;
+  font-weight: 600;
+}
+
+.c-rate {
+  color: #1b5fa8;
+  font-weight: 600;
+}
+
+.c-visits {
+  color: #888;
+  font-size: 12px;
+}
+
+.variation-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
+.v-head {
+  width: 100%;
+  font-size: 12px;
+  color: #888;
+}
+
+.v-move {
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #f2e9d8;
+}
+
 /* 提示与结果 */
 .message {
   min-height: 20px;
