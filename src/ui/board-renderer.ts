@@ -1,4 +1,4 @@
-import { BOARD_SIZE } from '../core/board';
+import { BLACK, Board, BOARD_SIZE, colOf, EMPTY, rowOf, Stone } from '../core/board';
 
 /** 标准 19 路星位(0 起始,列, 行) */
 export const STAR_POINTS: ReadonlyArray<readonly [number, number]> = [
@@ -16,6 +16,13 @@ export const STAR_POINTS: ReadonlyArray<readonly [number, number]> = [
 /** 列坐标字母(跳过 I,共 19 个) */
 export const COLUMN_LABELS = 'ABCDEFGHJKLMNOPQRST';
 
+/** 渲染状态:盘面、最后一手、悬停预览 */
+export interface RenderState {
+  board: Board;
+  lastMove: number | null;
+  ghost: { pos: number; stone: Stone } | null;
+}
+
 /** Canvas 棋盘渲染器:木纹盘面、网格线、星位、坐标标注 */
 export class BoardRenderer {
   private readonly ctx: CanvasRenderingContext2D;
@@ -25,11 +32,19 @@ export class BoardRenderer {
   private cell = 0;
   /** 边缘留白(px,覆盖坐标标注) */
   private padding = 0;
+  /** 当前渲染状态(棋盘棋子等动态内容) */
+  private state: RenderState | null = null;
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('无法获取 Canvas 2D 上下文');
     this.ctx = ctx;
+  }
+
+  /** 更新动态内容并重绘 */
+  setState(state: RenderState): void {
+    this.state = state;
+    this.render();
   }
 
   /** 依据当前 canvas 显示尺寸重算布局,并适配高分屏 */
@@ -52,6 +67,16 @@ export class BoardRenderer {
     return [this.padding + col * this.cell, this.padding + row * this.cell];
   }
 
+  /** 像素坐标反查最近的网格点;距交点过远时返回 null */
+  pixelToPoint(px: number, py: number): { col: number; row: number } | null {
+    const col = Math.round((px - this.padding) / this.cell);
+    const row = Math.round((py - this.padding) / this.cell);
+    if (col < 0 || col >= BOARD_SIZE || row < 0 || row >= BOARD_SIZE) return null;
+    const [x, y] = this.pointToPixel(col, row);
+    if (Math.hypot(px - x, py - y) > this.cell * 0.55) return null;
+    return { col, row };
+  }
+
   /** 渲染完整盘面(空棋盘) */
   render(): void {
     const { ctx, viewSize, cell, padding } = this;
@@ -61,6 +86,7 @@ export class BoardRenderer {
     this.drawGrid();
     this.drawStars();
     this.drawCoordinates();
+    if (this.state) this.drawState(this.state);
 
     // 木纹区域略超出最外圈线,收边
     const inner = padding - cell / 2;
@@ -68,6 +94,55 @@ export class BoardRenderer {
     ctx.lineWidth = 2;
     ctx.strokeStyle = '#8a6a3b';
     ctx.strokeRect(inner, inner, span + cell, span + cell);
+  }
+
+  /** 棋子、最后一手标记、悬停预览 */
+  private drawState(state: RenderState): void {
+    const { board, lastMove, ghost } = state;
+    for (let row = 0; row < BOARD_SIZE; row++) {
+      for (let col = 0; col < BOARD_SIZE; col++) {
+        const v = board.get(row * BOARD_SIZE + col);
+        if (v === EMPTY) continue;
+        const [x, y] = this.pointToPixel(col, row);
+        this.drawStone(x, y, v as Stone);
+      }
+    }
+    if (lastMove !== null) {
+      const [x, y] = this.pointToPixel(colOf(lastMove), rowOf(lastMove));
+      const v = board.get(lastMove);
+      this.ctx.fillStyle = v === BLACK ? '#f5f5f5' : '#222';
+      this.ctx.beginPath();
+      this.ctx.arc(x, y, this.cell * 0.14, 0, Math.PI * 2);
+      this.ctx.fill();
+    }
+    if (ghost && board.get(ghost.pos) === EMPTY) {
+      const [x, y] = this.pointToPixel(colOf(ghost.pos), rowOf(ghost.pos));
+      this.drawStone(x, y, ghost.stone, 0.55);
+    }
+  }
+
+  /** 单枚棋子(径向渐变 + 描边);alpha 用于悬停预览 */
+  private drawStone(x: number, y: number, stone: Stone, alpha = 1): void {
+    const { ctx, cell } = this;
+    const r = cell * 0.46;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    const grad = ctx.createRadialGradient(x - r * 0.3, y - r * 0.35, r * 0.1, x, y, r);
+    if (stone === BLACK) {
+      grad.addColorStop(0, '#5a5a5a');
+      grad.addColorStop(1, '#0a0a0a');
+    } else {
+      grad.addColorStop(0, '#ffffff');
+      grad.addColorStop(1, '#c8c8c8');
+    }
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = stone === BLACK ? '#000' : '#9a9a9a';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.restore();
   }
 
   /** 木纹底色 */

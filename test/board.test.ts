@@ -65,7 +65,7 @@ describe('提子', () => {
     board.play(WHITE, idx(9, 8));
     expect(board.get(center)).toBe(BLACK);
     const captured = board.play(WHITE, idx(9, 10));
-    expect(captured).toBe(1);
+    expect(captured).toEqual([center]);
     expect(board.get(center)).toBe(EMPTY);
   });
 

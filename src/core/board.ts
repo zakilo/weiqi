@@ -43,18 +43,20 @@ export class Board {
   }
 
   /**
-   * 落子并提掉因此无气的敌方块,返回被提子数。
+   * 落子并提掉因此无气的敌方块,返回被提的点列表。
    * 调用方需保证落点合法(空点、非自杀、非打劫)。
    */
-  play(stone: Stone, i: number): number {
+  play(stone: Stone, i: number): number[] {
     this.cells[i] = stone;
-    let captured = 0;
+    const captured: number[] = [];
     for (const nb of neighborsOf(i)) {
       if (this.cells[nb] !== opponent(stone)) continue;
       const group = this.groupOf(nb);
       if (this.countLiberties(group) === 0) {
-        captured += group.length;
-        for (const p of group) this.cells[p] = EMPTY;
+        for (const p of group) {
+          this.cells[p] = EMPTY;
+          captured.push(p);
+        }
       }
     }
     return captured;

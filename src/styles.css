@@ -28,6 +28,53 @@ body {
   letter-spacing: 4px;
 }
 
+/* 工具条 */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: min(92vw, 82vh);
+}
+
+.toolbar .status {
+  font-weight: 600;
+  min-width: 64px;
+}
+
+.toolbar .dim {
+  color: #888;
+  font-size: 13px;
+}
+
+.toolbar .spacer {
+  flex: 1;
+}
+
+.btn {
+  padding: 6px 14px;
+  font-size: 14px;
+  border: 1px solid #c9b998;
+  border-radius: 6px;
+  background: #fffdf7;
+  color: #4a3b28;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btn:hover {
+  background: #f0e6cf;
+}
+
+.btn.primary {
+  background: #4a3b28;
+  border-color: #4a3b28;
+  color: #fff;
+}
+
+.btn.primary:hover {
+  background: #5d4c36;
+}
+
 /* 棋盘容器:保持正方形,适配视口 */
 .board-wrap {
   width: min(92vw, 82vh);
@@ -35,10 +82,39 @@ body {
   border-radius: 4px;
   box-shadow: 0 4px 16px rgb(0 0 0 / 18%);
   background: #d3a253;
+  cursor: crosshair;
 }
 
 .board-wrap canvas {
   display: block;
   width: 100%;
   height: 100%;
+}
+
+/* 提示与结果 */
+.message {
+  min-height: 20px;
+  font-size: 14px;
+  color: #a0522d;
+}
+
+.result-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+  padding: 12px 24px;
+  border: 1px solid #c9b998;
+  border-radius: 8px;
+  background: #fffdf7;
+  font-size: 14px;
+}
+
+.result-panel .winner {
+  font-weight: 700;
+  color: #a0522d;
+}
+
+.hidden {
+  display: none;
 }
