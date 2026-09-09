@@ -1,39 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { BLACK, Board, WHITE, idx } from '../src/core/board';
-import type { KataGoNet, NetEval } from '../src/engine/net';
 import { DEFAULT_MCTS_CONFIG, MctsSearch, MctsSession, PASS } from '../src/engine/mcts';
-import type { EncodedFeatures } from '../src/engine/features';
 import { NO_PREV_HASH } from '../src/core/rules';
-
-/** 构造一个策略恒定的 mock 网络 */
-function makeMockNet(options: {
-  movePos?: number;
-  moveLogit?: number;
-  passLogit?: number;
-  winProb?: number;
-}): KataGoNet {
-  const { movePos = idx(9, 9), moveLogit = 10, passLogit = -5, winProb = 0.8 } = options;
-  const makeEval = (): NetEval => {
-    const policyLogits = new Float32Array(361);
-    policyLogits[movePos] = moveLogit;
-    return {
-      policyLogits,
-      passLogit,
-      winProb,
-      scoreLead: 2,
-      scoreMean: 5,
-      noResultProb: 0.01,
-    };
-  };
-  return {
-    async evaluate(_input: EncodedFeatures): Promise<NetEval> {
-      return makeEval();
-    },
-    async evaluateBatch(inputs: readonly EncodedFeatures[]): Promise<NetEval[]> {
-      return inputs.map(() => makeEval());
-    },
-  } as unknown as KataGoNet;
-}
+import { makeMockNet } from './helpers/mock-net';
 
 const config = (overrides: Partial<typeof DEFAULT_MCTS_CONFIG> = {}) => ({
   ...DEFAULT_MCTS_CONFIG,

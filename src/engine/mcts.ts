@@ -63,6 +63,18 @@ export interface MctsProgress {
   bestMove: number;
 }
 
+/** 候选着法信息(供分析展示) */
+export interface CandidateInfo {
+  /** 着法索引(0..360 落点,361=虚着) */
+  pos: number;
+  /** 访问次数 */
+  visits: number;
+  /** 落此着后的胜率(根行棋方视角) */
+  winRate: number;
+  /** 先验概率(合法集重归一化后) */
+  prior: number;
+}
+
 interface MctsNode {
   parent: MctsNode | null;
   /** 到达本节点的着法:-1=根,0..360=落点,361=虚着 */
@@ -276,6 +288,19 @@ export class MctsSession {
   /** 根局面行棋方视角的当前价值(无访问时回退根评估) */
   private rootValue(): number {
     return this.root.visits > 0 ? this.root.winSum / this.root.visits : this.rootEvalWinProb;
+  }
+
+  /** 访问最多的前 k 个着法(胜率从根行棋方视角换算) */
+  topMoves(k: number): CandidateInfo[] {
+    const children = [...(this.root.children?.values() ?? [])];
+    children.sort((a, b) => b.visits - a.visits);
+    return children.slice(0, k).map((c) => ({
+      pos: c.pos,
+      visits: c.visits,
+      // 子节点价值从对手视角累计,换算回根行棋方视角
+      winRate: c.visits > 0 ? 1 - c.winSum / c.visits : this.rootEvalWinProb,
+      prior: c.prior,
+    }));
   }
 
   /** 沿树下降到叶子(未扩展或终局节点) */
