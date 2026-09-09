@@ -6,12 +6,23 @@ import { exportGameSgf, exportLineSgf, parseSgfToLine } from './store/game-io';
 import { SgfLineMove } from './core/sgf';
 import { deleteGame, getGame, listGames, saveGame } from './store/db';
 import { Replay } from './store/replay';
+import {
+  getCachedModelBytes,
+  importModelFromFile,
+  LoadPhase,
+  loadModelBytes,
+  MODEL_B18,
+} from './engine/model-loader';
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 
 app.innerHTML = `
   <div class="shell">
     <h1>围棋 · 本地对弈</h1>
+    <div id="load-bar-wrap" class="load-bar-wrap hidden">
+      <div id="load-bar-fill" class="load-bar-fill"></div>
+      <span id="load-bar-text" class="load-bar-text"></span>
+    </div>
     <div class="toolbar">
       <span id="status" class="status"></span>
       <span id="move-count" class="dim"></span>
@@ -43,6 +54,17 @@ app.innerHTML = `
         </div>
         <ul id="game-list" class="game-list"></ul>
         <input id="file-input" type="file" accept=".sgf" class="hidden" />
+        <div class="model-panel">
+          <div class="library-head">
+            <h2>AI 模型</h2>
+            <div class="library-actions">
+              <button id="btn-load-model" class="btn small" title="从网络下载权重">下载</button>
+              <button id="btn-import-model" class="btn small" title="从本地文件导入权重">导入</button>
+            </div>
+          </div>
+          <div id="model-status" class="g-empty">检查中…</div>
+          <input id="model-file-input" type="file" accept=".bin,.bin.gz,.gz" class="hidden" />
+        </div>
       </aside>
     </div>
     <div id="message" class="message"></div>
@@ -399,3 +421,84 @@ new ResizeObserver(() => board.resize()).observe(canvas);
 board.resize();
 refresh();
 void renderLibrary();
+
+// ---- 模型加载(下载/缓存/进度) ----
+const loadBarWrap = document.querySelector<HTMLDivElement>('#load-bar-wrap')!;
+const loadBarFill = document.querySelector<HTMLDivElement>('#load-bar-fill')!;
+const loadBarText = document.querySelector<HTMLSpanElement>('#load-bar-text')!;
+const modelStatusEl = document.querySelector<HTMLDivElement>('#model-status')!;
+const modelFileInput = document.querySelector<HTMLInputElement>('#model-file-input')!;
+
+let modelLoading = false;
+
+const PHASE_TEXT: Record<LoadPhase, string> = {
+  download: '下载模型',
+  decompress: '解压模型',
+};
+
+function mb(bytes: number): string {
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function setLoadBar(show: boolean, percent: number, text: string): void {
+  loadBarWrap.classList.toggle('hidden', !show);
+  loadBarFill.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+  loadBarText.textContent = text;
+}
+
+function setModelStatus(text: string): void {
+  modelStatusEl.textContent = text;
+}
+
+async function refreshModelStatus(): Promise<void> {
+  try {
+    const cached = await getCachedModelBytes(MODEL_B18.id);
+    setModelStatus(cached ? `就绪 ${mb(cached.byteLength)}` : '未加载');
+  } catch {
+    setModelStatus('存储不可用');
+  }
+}
+
+document.querySelector('#btn-load-model')!.addEventListener('click', async () => {
+  if (modelLoading) return;
+  modelLoading = true;
+  setLoadBar(true, 0, `${PHASE_TEXT.download} 0%`);
+  try {
+    const bytes = await loadModelBytes(MODEL_B18, (phase, loaded, total) => {
+      const percent = total ? (loaded / total) * 100 : 0;
+      setLoadBar(true, percent, `${PHASE_TEXT[phase]} ${mb(loaded)}${total ? ` / ${mb(total)}` : ''}`);
+    });
+    setModelStatus(`就绪 ${mb(bytes.byteLength)}`);
+    messageEl.textContent = `模型「${MODEL_B18.name}」加载完成`;
+  } catch (e) {
+    setModelStatus('下载失败');
+    messageEl.textContent = `模型加载失败:${String(e)}`;
+  } finally {
+    modelLoading = false;
+    setLoadBar(false, 0, '');
+  }
+});
+
+document.querySelector('#btn-import-model')!.addEventListener('click', () => modelFileInput.click());
+modelFileInput.addEventListener('change', async () => {
+  const file = modelFileInput.files?.[0];
+  modelFileInput.value = '';
+  if (!file || modelLoading) return;
+  modelLoading = true;
+  setLoadBar(true, 0, `${PHASE_TEXT.decompress} 0%`);
+  try {
+    const bytes = await importModelFromFile(MODEL_B18, file, (phase, loaded) => {
+      setLoadBar(true, 0, `${PHASE_TEXT[phase]} ${mb(loaded)}`);
+    });
+    setModelStatus(`就绪 ${mb(bytes.byteLength)}`);
+    messageEl.textContent = `模型已从 ${file.name} 导入`;
+  } catch (e) {
+    setModelStatus('导入失败');
+    messageEl.textContent = `模型导入失败:${String(e)}`;
+  } finally {
+    modelLoading = false;
+    setLoadBar(false, 0, '');
+  }
+});
+
+void refreshModelStatus();

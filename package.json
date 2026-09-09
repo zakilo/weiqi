@@ -11,6 +11,7 @@
     "test:watch": "vitest"
   },
   "devDependencies": {
+    "@types/node": "^26.5.0",
     "fake-indexeddb": "^6.2.5",
     "typescript": "^7.0.2",
     "vite": "^8.2.2",

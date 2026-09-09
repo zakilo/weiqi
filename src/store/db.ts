@@ -13,16 +13,21 @@ export interface SavedGame {
 }
 
 const DB_NAME = 'weiqi';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_NAME = 'games';
+/** 模型权重缓存表(键为模型 id) */
+export const MODEL_STORE = 'model-blobs';
 
-function openDb(): Promise<IDBDatabase> {
+export function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains(STORE_NAME)) {
         db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
+      }
+      if (!db.objectStoreNames.contains(MODEL_STORE)) {
+        db.createObjectStore(MODEL_STORE, { keyPath: 'id' });
       }
     };
     req.onsuccess = () => resolve(req.result);
