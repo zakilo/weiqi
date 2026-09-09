@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { BLACK, idx, WHITE } from '../src/core/board';
+import { BLACK, Board, idx, WHITE } from '../src/core/board';
+import { NO_PREV_HASH } from '../src/core/rules';
 import { SgfLineMove } from '../src/core/sgf';
 import { Replay } from '../src/store/replay';
+import { Zobrist } from '../src/core/zobrist';
 
 describe('棋谱回放', () => {
   const line: SgfLineMove[] = [
@@ -79,5 +81,28 @@ describe('棋谱回放', () => {
       { stone: BLACK, col: 0, row: 0 }, // 劫回 → 非法
     ]);
     expect(r.moveCount).toBe(6);
+  });
+
+  it('分析辅助:下一手行棋方/最近手/打劫参照哈希', () => {
+    const r = Replay.fromMoves(line);
+    // 第 0 手视角:下一手 = 第 1 手行棋方(黑)
+    expect(r.nextStone()).toBe(BLACK);
+    expect(r.recentMoves(5)).toEqual([]);
+    expect(r.prevHash()).toBe(NO_PREV_HASH);
+
+    r.goto(3);
+    // 3 手后:下一手 = 第 4 手(白)
+    expect(r.nextStone()).toBe(WHITE);
+    expect(r.recentMoves(5)).toEqual(line.slice(0, 3));
+    // 打劫参照 = 第 3 手落子前局面(已落 2 手)
+    const boardAfter2 = new Board();
+    boardAfter2.play(BLACK, idx(2, 0));
+    boardAfter2.play(WHITE, idx(1, 1));
+    expect(r.prevHash()).toBe(Zobrist.fromBoard(boardAfter2).value);
+
+    // 谱尾视角:下一手 = 最后一手(白)的对手(黑)
+    r.end();
+    expect(r.nextStone()).toBe(BLACK);
+    expect(r.recentMoves(3)).toEqual(line.slice(3, 6));
   });
 });

@@ -1,4 +1,4 @@
-import { BLACK, Board, BOARD_SIZE, colOf, EMPTY, rowOf, Stone } from '../core/board';
+import { BLACK, Board, BOARD_SIZE, colOf, EMPTY, opponent, rowOf, Stone } from '../core/board';
 
 /** 标准 19 路星位(0 起始,列, 行) */
 export const STAR_POINTS: ReadonlyArray<readonly [number, number]> = [
@@ -16,11 +16,18 @@ export const STAR_POINTS: ReadonlyArray<readonly [number, number]> = [
 /** 列坐标字母(跳过 I,共 19 个) */
 export const COLUMN_LABELS = 'ABCDEFGHJKLMNOPQRST';
 
-/** 渲染状态:盘面、最后一手、悬停预览 */
+/** 渲染状态:盘面、最后一手、悬停预览、分析标记 */
 export interface RenderState {
   board: Board;
   lastMove: number | null;
   ghost: { pos: number; stone: Stone } | null;
+  /** AI 分析标记(回放暂停时展示) */
+  analysis?: {
+    /** 候选着法(0..360 落点,361=虚着)与行棋方视角胜率 */
+    candidates: { pos: number; winRate: number }[];
+    /** 变化线(含首手),与行棋方起始颜色 */
+    variation?: { stone: Stone; moves: { pos: number; order: number }[] };
+  };
 }
 
 /** Canvas 棋盘渲染器:木纹盘面、网格线、星位、坐标标注 */
@@ -86,7 +93,10 @@ export class BoardRenderer {
     this.drawGrid();
     this.drawStars();
     this.drawCoordinates();
-    if (this.state) this.drawState(this.state);
+    if (this.state) {
+      this.drawState(this.state);
+      if (this.state.analysis) this.drawAnalysis(this.state.analysis);
+    }
 
     // 木纹区域略超出最外圈线,收边
     const inner = padding - cell / 2;
@@ -118,6 +128,49 @@ export class BoardRenderer {
     if (ghost && board.get(ghost.pos) === EMPTY) {
       const [x, y] = this.pointToPixel(colOf(ghost.pos), rowOf(ghost.pos));
       this.drawStone(x, y, ghost.stone, 0.55);
+    }
+  }
+
+  /** 分析标记:候选点胜率圆标 + 变化线半透明棋子与编号 */
+  private drawAnalysis(a: NonNullable<RenderState['analysis']>): void {
+    const { ctx, cell } = this;
+    // 候选点:蓝色圆标 + 胜率百分比(虚着不画在盘上)
+    for (const c of a.candidates) {
+      if (c.pos === BOARD_SIZE * BOARD_SIZE) continue;
+      const [x, y] = this.pointToPixel(colOf(c.pos), rowOf(c.pos));
+      ctx.beginPath();
+      ctx.arc(x, y, cell * 0.42, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(30, 110, 190, 0.28)';
+      ctx.fill();
+      ctx.strokeStyle = '#1b5fa8';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.fillStyle = '#0e3d70';
+      ctx.font = `bold ${Math.max(cell * 0.3, 9)}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(`${Math.round(c.winRate * 100)}`, x, y);
+    }
+    // 变化线:半透明棋子 + 步序编号(虚着不画在盘上)
+    const variation = a.variation;
+    if (!variation) return;
+    for (const { pos, order } of variation.moves) {
+      if (pos >= BOARD_SIZE * BOARD_SIZE) continue;
+      const stone: Stone = order % 2 === 1 ? variation.stone : opponent(variation.stone);
+      const [x, y] = this.pointToPixel(colOf(pos), rowOf(pos));
+      this.drawStone(x, y, stone, 0.62);
+      ctx.beginPath();
+      ctx.arc(x + cell * 0.24, y - cell * 0.24, cell * 0.2, 0, Math.PI * 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.fill();
+      ctx.strokeStyle = '#333333';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.fillStyle = '#222222';
+      ctx.font = `bold ${Math.max(cell * 0.24, 8)}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(String(order), x + cell * 0.24, y - cell * 0.24);
     }
   }
 

@@ -1,4 +1,4 @@
-import { Board, idx } from '../core/board';
+import { BLACK, Board, idx, opponent, Stone } from '../core/board';
 import { checkLegality, NO_PREV_HASH } from '../core/rules';
 import { SgfLineMove } from '../core/sgf';
 import { Zobrist } from '../core/zobrist';
@@ -80,6 +80,24 @@ export class Replay {
   /** 当前视角最近落子点(无落子时 null) */
   lastPlayPos(): number | null {
     return this.lastPlays[this._pos]!;
+  }
+
+  /** 分析用:当前视角下一手行棋方(空谱为黑) */
+  nextStone(): Stone {
+    if (this._pos < this.moves.length) return this.moves[this._pos]!.stone;
+    if (this.moves.length > 0) return opponent(this.moves[this.moves.length - 1]!.stone);
+    return BLACK;
+  }
+
+  /** 分析用:截至当前视角的最近 n 手(时间升序) */
+  recentMoves(n: number): SgfLineMove[] {
+    return this.moves.slice(Math.max(0, this._pos - n), this._pos);
+  }
+
+  /** 分析用:下一手打劫检测参照(上一手落子前局面哈希) */
+  prevHash(): bigint {
+    if (this._pos === 0) return NO_PREV_HASH;
+    return Zobrist.fromBoard(this.boards[this._pos - 1]!).value;
   }
 
   isAtStart(): boolean {
