@@ -13,6 +13,7 @@ import {
   loadModelBytes,
   MODEL_B18,
 } from './engine/model-loader';
+import { AiPlayer, levelOf } from './engine/ai-player';
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 
@@ -35,6 +36,16 @@ app.innerHTML = `
         <button id="btn-last" class="btn" title="跳到末手">⏭</button>
         <button id="btn-resume" class="btn primary">继续对弈</button>
       </div>
+      <select id="vs-select" class="btn" title="对弈模式">
+        <option value="human">双人对弈</option>
+        <option value="ai-white">人机·AI 执白</option>
+        <option value="ai-black">人机·AI 执黑</option>
+      </select>
+      <select id="level-select" class="btn" title="AI 难度">
+        <option value="easy">入门</option>
+        <option value="normal" selected>进阶</option>
+        <option value="hard">高手</option>
+      </select>
       <button id="btn-pass" class="btn">虚着</button>
       <button id="btn-undo" class="btn">悔棋</button>
       <button id="btn-restart" class="btn primary">新对局</button>
@@ -77,6 +88,8 @@ const statusEl = document.querySelector<HTMLSpanElement>('#status')!;
 const moveCountEl = document.querySelector<HTMLSpanElement>('#move-count')!;
 const messageEl = document.querySelector<HTMLDivElement>('#message')!;
 const resultPanel = document.querySelector<HTMLDivElement>('#result-panel')!;
+const vsSelect = document.querySelector<HTMLSelectElement>('#vs-select')!;
+const levelSelect = document.querySelector<HTMLSelectElement>('#level-select')!;
 
 const board = new BoardRenderer(canvas);
 const game = new Game();
@@ -86,6 +99,17 @@ let ghost: { pos: number; stone: Stone } | null = null;
 let mode: 'play' | 'replay' = 'play';
 let replay: Replay | null = null;
 let autoplayTimer: ReturnType<typeof setInterval> | null = null;
+
+/** 对弈模式:双人 / AI 执白 / AI 执黑 */
+let vsMode: 'human' | 'ai-white' | 'ai-black' = 'human';
+const aiPlayer = new AiPlayer();
+/** 是否轮到 AI 行棋(且非回放模式) */
+function isAiTurn(): boolean {
+  if (mode !== 'play' || game.isFinished) return false;
+  if (vsMode === 'ai-black') return game.currentStone === BLACK;
+  if (vsMode === 'ai-white') return game.currentStone === WHITE;
+  return false;
+}
 
 /** 棋盘坐标文本,如 "Q16" */
 function coordText(col: number, row: number): string {
@@ -126,7 +150,9 @@ function refresh(): void {
   replayControls.classList.add('hidden');
   for (const b of playButtons) b.disabled = false;
   moveCountEl.textContent = `手数:${game.moveCount}`;
-  if (game.isFinished && game.result) {
+  if (aiPlayer.thinking) {
+    statusEl.textContent = 'AI 思考中…';
+  } else if (game.isFinished && game.result) {
     statusEl.textContent = '对局结束';
     const r = game.result;
     resultPanel.classList.remove('hidden');
@@ -165,11 +191,42 @@ function tryPlay(col: number, row: number): void {
       : '';
   }
   refresh();
+  void maybeAiMove();
+}
+
+/** 轮到 AI 时驱动思考落子(思考中/未就绪时静默跳过) */
+async function maybeAiMove(): Promise<void> {
+  if (!isAiTurn() || aiPlayer.thinking) return;
+  if (!aiPlayer.isReady) {
+    messageEl.textContent = 'AI 模型未加载:请先在侧栏下载或导入模型';
+    return;
+  }
+  const level = levelOf(levelSelect.value);
+  try {
+    const move = await aiPlayer.think(game, level.config);
+    if (mode !== 'play') return;
+    if (move.kind === 'pass') {
+      game.pass();
+      messageEl.textContent = `AI 虚着${game.isFinished ? ',双方虚着终局' : ''}`;
+    } else {
+      const outcome = game.play(move.col, move.row);
+      if (!outcome.ok) {
+        messageEl.textContent = `AI 尝试非法落子(${REASONS[outcome.reason ?? ''] ?? outcome.reason}),已放弃`;
+        return;
+      }
+      messageEl.textContent = `AI ${coordText(move.col, move.row)}`;
+    }
+  } catch (e) {
+    messageEl.textContent = `AI 思考失败:${String(e)}`;
+  } finally {
+    refresh();
+    void maybeAiMove(); // 若 AI 连续行棋(或思考后仍轮到 AI)继续
+  }
 }
 
 // 点击落子(仅对弈模式)
 canvas.addEventListener('click', (e) => {
-  if (mode !== 'play') return;
+  if (mode !== 'play' || aiPlayer.thinking || isAiTurn()) return;
   const rect = canvas.getBoundingClientRect();
   const pt = board.pixelToPoint(e.clientX - rect.left, e.clientY - rect.top);
   if (!pt) return;
@@ -194,9 +251,22 @@ canvas.addEventListener('mouseleave', () => {
 });
 
 document.querySelector('#btn-pass')!.addEventListener('click', () => {
+  if (aiPlayer.thinking || isAiTurn()) return;
   game.pass();
   messageEl.textContent = game.isFinished ? '双方虚着,终局数子' : `${stoneName(game.currentStone)}虚着`;
   refresh();
+  void maybeAiMove();
+});
+
+// ---- 对弈模式与难度 ----
+vsSelect.addEventListener('change', () => {
+  vsMode = vsSelect.value as 'human' | 'ai-white' | 'ai-black';
+  messageEl.textContent = `对弈模式:${vsSelect.options[vsSelect.selectedIndex]?.text ?? ''}`;
+  refresh();
+  void maybeAiMove();
+});
+levelSelect.addEventListener('change', () => {
+  messageEl.textContent = `AI 难度:${levelSelect.options[levelSelect.selectedIndex]?.text ?? ''}`;
 });
 
 // ---- 回放控制 ----
@@ -403,9 +473,11 @@ fileInput.addEventListener('change', () => {
 });
 
 document.querySelector('#btn-undo')!.addEventListener('click', () => {
+  if (aiPlayer.thinking) return;
   game.undo(1);
   messageEl.textContent = '已悔棋';
   refresh();
+  void maybeAiMove();
 });
 document.querySelector('#btn-restart')!.addEventListener('click', () => {
   stopAutoplay();
@@ -414,6 +486,7 @@ document.querySelector('#btn-restart')!.addEventListener('click', () => {
   game.restart();
   messageEl.textContent = '新对局开始';
   refresh();
+  void maybeAiMove();
 });
 
 // 初始渲染与窗口尺寸变化自适应
@@ -453,7 +526,7 @@ function setModelStatus(text: string): void {
 async function refreshModelStatus(): Promise<void> {
   try {
     const cached = await getCachedModelBytes(MODEL_B18.id);
-    setModelStatus(cached ? `就绪 ${mb(cached.byteLength)}` : '未加载');
+    setModelStatus(cached ? `已缓存 ${mb(cached.byteLength)}${aiPlayer.isReady ? ` · ${aiPlayer.backendLabel}` : ' · 未载入内存'}` : '未加载');
   } catch {
     setModelStatus('存储不可用');
   }
@@ -468,14 +541,16 @@ document.querySelector('#btn-load-model')!.addEventListener('click', async () =>
       const percent = total ? (loaded / total) * 100 : 0;
       setLoadBar(true, percent, `${PHASE_TEXT[phase]} ${mb(loaded)}${total ? ` / ${mb(total)}` : ''}`);
     });
-    setModelStatus(`就绪 ${mb(bytes.byteLength)}`);
-    messageEl.textContent = `模型「${MODEL_B18.name}」加载完成`;
+    await loadAiModel(bytes);
+    messageEl.textContent = `模型「${MODEL_B18.name}」加载完成(${aiPlayer.backendLabel})`;
   } catch (e) {
     setModelStatus('下载失败');
     messageEl.textContent = `模型加载失败:${String(e)}`;
   } finally {
     modelLoading = false;
     setLoadBar(false, 0, '');
+    refresh();
+    void maybeAiMove();
   }
 });
 
@@ -490,15 +565,25 @@ modelFileInput.addEventListener('change', async () => {
     const bytes = await importModelFromFile(MODEL_B18, file, (phase, loaded) => {
       setLoadBar(true, 0, `${PHASE_TEXT[phase]} ${mb(loaded)}`);
     });
-    setModelStatus(`就绪 ${mb(bytes.byteLength)}`);
-    messageEl.textContent = `模型已从 ${file.name} 导入`;
+    await loadAiModel(bytes);
+    messageEl.textContent = `模型已从 ${file.name} 导入(${aiPlayer.backendLabel})`;
   } catch (e) {
     setModelStatus('导入失败');
     messageEl.textContent = `模型导入失败:${String(e)}`;
   } finally {
     modelLoading = false;
     setLoadBar(false, 0, '');
+    refresh();
+    void maybeAiMove();
   }
 });
+
+/** 解析权重建网并更新状态(下载与导入共用) */
+async function loadAiModel(bytes: ArrayBuffer): Promise<void> {
+  setLoadBar(true, 0, '解析权重与初始化计算后端');
+  setModelStatus('解析权重中…');
+  await aiPlayer.loadModelBytes(new Uint8Array(bytes));
+  setModelStatus(`就绪 ${mb(bytes.byteLength)} · ${aiPlayer.backendLabel} · ${aiPlayer.modelName ?? ''}`);
+}
 
 void refreshModelStatus();

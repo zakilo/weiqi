@@ -67,7 +67,7 @@ export class Game {
     if (this.finished) return { ok: false, reason: 'game-over' };
     const stone = this.currentStone;
     const pos = idx(col, row);
-    const prevHash = this.prevHashForNext();
+    const prevHash = this.prevHashForNext;
     const legality = checkLegality(this.board, stone, pos, prevHash);
     if (legality !== 'ok') return { ok: false, reason: legality };
 
@@ -149,7 +149,7 @@ export class Game {
   }
 
   /** 下一手打劫检测参照:上一手落子前的局面哈希 */
-  private prevHashForNext(): bigint {
+  get prevHashForNext(): bigint {
     return this.beforeHashes.length > 0
       ? this.beforeHashes[this.beforeHashes.length - 1]
       : NO_PREV_HASH;
