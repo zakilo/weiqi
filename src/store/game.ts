@@ -121,6 +121,24 @@ export class Game {
     this._result = null;
   }
 
+  /**
+   * 从手顺重建对局(导入棋谱用):逐手走合法性校验;
+   * 中途非法手返回 false(已加载部分保留),末尾双虚着正常终局
+   */
+  loadMoves(moves: readonly { stone: Stone; col: number | null; row: number | null }[]): boolean {
+    this.restart();
+    for (const m of moves) {
+      if (this.isFinished) break;
+      if (m.col === null || m.row === null) {
+        this.pass();
+      } else {
+        const out = this.play(m.col, m.row);
+        if (!out.ok) return false;
+      }
+    }
+    return true;
+  }
+
   /** 强制终局结算(双方认输/手动数子时使用) */
   finishWithScore(deadStones: readonly number[] = []): ScoreResult {
     if (!this.finished) {

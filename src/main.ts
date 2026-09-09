@@ -2,6 +2,7 @@ import './styles.css';
 import { BLACK, colOf, idx, rowOf, Stone, WHITE } from './core/board';
 import { BoardRenderer, COLUMN_LABELS } from './ui/board-renderer';
 import { Game } from './store/game';
+import { exportGameSgf, parseSgfToLine } from './store/game-io';
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 
@@ -12,9 +13,12 @@ app.innerHTML = `
       <span id="status" class="status"></span>
       <span id="move-count" class="dim"></span>
       <div class="spacer"></div>
+      <button id="btn-save" class="btn">保存棋谱</button>
+      <button id="btn-import" class="btn">导入棋谱</button>
       <button id="btn-pass" class="btn">虚着</button>
       <button id="btn-undo" class="btn">悔棋</button>
       <button id="btn-restart" class="btn primary">新对局</button>
+      <input id="file-input" type="file" accept=".sgf" class="hidden" />
     </div>
     <div class="board-wrap">
       <canvas id="board"></canvas>
@@ -115,6 +119,54 @@ document.querySelector('#btn-pass')!.addEventListener('click', () => {
   messageEl.textContent = game.isFinished ? '双方虚着,终局数子' : `${stoneName(game.currentStone)}虚着`;
   refresh();
 });
+
+document.querySelector('#btn-save')!.addEventListener('click', () => {
+  if (game.moveCount === 0) {
+    messageEl.textContent = '尚未落子,无法保存';
+    return;
+  }
+  const text = exportGameSgf(game);
+  const stamp = new Date()
+    .toISOString()
+    .replace(/[-:]/g, '')
+    .replace('T', '-')
+    .slice(0, 15);
+  const blob = new Blob([text], { type: 'application/x-go-sgf' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `weiqi-${stamp}.sgf`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  messageEl.textContent = `已保存 ${game.moveCount} 手棋谱`;
+});
+
+const fileInput = document.querySelector<HTMLInputElement>('#file-input')!;
+document.querySelector('#btn-import')!.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', () => {
+  const file = fileInput.files?.[0];
+  fileInput.value = '';
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    const line = parseSgfToLine(String(reader.result ?? ''));
+    if (!line) {
+      messageEl.textContent = '棋谱解析失败:不是合法的 SGF 文本';
+      return;
+    }
+    if (!game.loadMoves(line)) {
+      messageEl.textContent = '棋谱含非法手,仅加载了部分手顺';
+    } else {
+      messageEl.textContent = `已导入 ${file.name},共 ${game.moveCount} 手`;
+    }
+    refresh();
+  };
+  reader.onerror = () => {
+    messageEl.textContent = '读取文件失败';
+  };
+  reader.readAsText(file);
+});
+
 document.querySelector('#btn-undo')!.addEventListener('click', () => {
   game.undo(1);
   messageEl.textContent = '已悔棋';
