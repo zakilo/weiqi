@@ -2,8 +2,10 @@ import './styles.css';
 import { BLACK, colOf, idx, rowOf, Stone, WHITE } from './core/board';
 import { BoardRenderer, COLUMN_LABELS } from './ui/board-renderer';
 import { Game } from './store/game';
-import { exportGameSgf, parseSgfToLine } from './store/game-io';
+import { exportGameSgf, exportLineSgf, parseSgfToLine } from './store/game-io';
+import { SgfLineMove } from './core/sgf';
 import { deleteGame, getGame, listGames, saveGame } from './store/db';
+import { Replay } from './store/replay';
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 
@@ -14,6 +16,14 @@ app.innerHTML = `
       <span id="status" class="status"></span>
       <span id="move-count" class="dim"></span>
       <div class="spacer"></div>
+      <div id="replay-controls" class="replay-controls hidden">
+        <button id="btn-first" class="btn" title="回到首手">⏮</button>
+        <button id="btn-prev" class="btn" title="上一手">◀</button>
+        <button id="btn-autoplay" class="btn" title="自动播放">播放</button>
+        <button id="btn-next" class="btn" title="下一手">▶</button>
+        <button id="btn-last" class="btn" title="跳到末手">⏭</button>
+        <button id="btn-resume" class="btn primary">继续对弈</button>
+      </div>
       <button id="btn-pass" class="btn">虚着</button>
       <button id="btn-undo" class="btn">悔棋</button>
       <button id="btn-restart" class="btn primary">新对局</button>
@@ -50,6 +60,11 @@ const board = new BoardRenderer(canvas);
 const game = new Game();
 let ghost: { pos: number; stone: Stone } | null = null;
 
+/** 交互模式:play = 正常对弈;replay = 棋谱回放 */
+let mode: 'play' | 'replay' = 'play';
+let replay: Replay | null = null;
+let autoplayTimer: ReturnType<typeof setInterval> | null = null;
+
 /** 棋盘坐标文本,如 "Q16" */
 function coordText(col: number, row: number): string {
   return `${COLUMN_LABELS[col]}${row + 1}`;
@@ -67,11 +82,27 @@ const REASONS: Record<string, string> = {
 };
 
 function refresh(): void {
-  board.setState({
-    board: game.getBoard(),
-    lastMove: game.getLastPlayPos(),
-    ghost,
-  });
+  const displayBoard = mode === 'replay' && replay ? replay.board() : game.getBoard();
+  const lastMove = mode === 'replay' && replay ? replay.lastPlayPos() : game.getLastPlayPos();
+  board.setState({ board: displayBoard, lastMove, ghost });
+
+  const replayControls = document.querySelector<HTMLDivElement>('#replay-controls')!;
+  const playButtons = [
+    document.querySelector<HTMLButtonElement>('#btn-pass')!,
+    document.querySelector<HTMLButtonElement>('#btn-undo')!,
+  ];
+  if (mode === 'replay' && replay) {
+    replayControls.classList.remove('hidden');
+    for (const b of playButtons) b.disabled = true;
+    moveCountEl.textContent = `第 ${replay.pos}/${replay.moveCount} 手`;
+    statusEl.textContent = '棋谱回放';
+    resultPanel.classList.add('hidden');
+    updateAutoplayButton();
+    return;
+  }
+
+  replayControls.classList.add('hidden');
+  for (const b of playButtons) b.disabled = false;
   moveCountEl.textContent = `手数:${game.moveCount}`;
   if (game.isFinished && game.result) {
     statusEl.textContent = '对局结束';
@@ -89,6 +120,18 @@ function refresh(): void {
   }
 }
 
+function stopAutoplay(): void {
+  if (autoplayTimer !== null) {
+    clearInterval(autoplayTimer);
+    autoplayTimer = null;
+  }
+}
+
+function updateAutoplayButton(): void {
+  const btn = document.querySelector<HTMLButtonElement>('#btn-autoplay')!;
+  btn.textContent = autoplayTimer !== null ? '暂停' : '播放';
+}
+
 function tryPlay(col: number, row: number): void {
   const outcome = game.play(col, row);
   if (!outcome.ok) {
@@ -102,16 +145,18 @@ function tryPlay(col: number, row: number): void {
   refresh();
 }
 
-// 点击落子
+// 点击落子(仅对弈模式)
 canvas.addEventListener('click', (e) => {
+  if (mode !== 'play') return;
   const rect = canvas.getBoundingClientRect();
   const pt = board.pixelToPoint(e.clientX - rect.left, e.clientY - rect.top);
   if (!pt) return;
   tryPlay(pt.col, pt.row);
 });
 
-// 悬停预览
+// 悬停预览(仅对弈模式)
 canvas.addEventListener('mousemove', (e) => {
+  if (mode !== 'play') return;
   const rect = canvas.getBoundingClientRect();
   const pt = board.pixelToPoint(e.clientX - rect.left, e.clientY - rect.top);
   if (pt && game.getBoard().get(idx(pt.col, pt.row)) === 0 && !game.isFinished) {
@@ -129,6 +174,65 @@ canvas.addEventListener('mouseleave', () => {
 document.querySelector('#btn-pass')!.addEventListener('click', () => {
   game.pass();
   messageEl.textContent = game.isFinished ? '双方虚着,终局数子' : `${stoneName(game.currentStone)}虚着`;
+  refresh();
+});
+
+// ---- 回放控制 ----
+function enterReplay(line: readonly SgfLineMove[], truncated = false): void {
+  stopAutoplay();
+  replay = Replay.fromMoves(line);
+  mode = 'replay';
+  if (replay.moveCount === 0) {
+    messageEl.textContent = '棋谱没有有效手数';
+  } else if (truncated || replay.moveCount < line.length) {
+    messageEl.textContent = `棋谱含非法手,仅回放前 ${replay.moveCount} 手`;
+  } else {
+    messageEl.textContent = '进入回放模式,可逐步查看';
+  }
+  refresh();
+}
+
+document.querySelector('#btn-first')!.addEventListener('click', () => {
+  replay?.start();
+  refresh();
+});
+document.querySelector('#btn-prev')!.addEventListener('click', () => {
+  replay?.step(-1);
+  refresh();
+});
+document.querySelector('#btn-next')!.addEventListener('click', () => {
+  stopAutoplay();
+  replay?.step(1);
+  refresh();
+});
+document.querySelector('#btn-last')!.addEventListener('click', () => {
+  replay?.end();
+  refresh();
+});
+document.querySelector('#btn-autoplay')!.addEventListener('click', () => {
+  if (!replay) return;
+  if (autoplayTimer !== null) {
+    stopAutoplay();
+  } else {
+    autoplayTimer = setInterval(() => {
+      if (!replay || replay.isAtEnd()) {
+        stopAutoplay();
+      } else {
+        replay.step(1);
+      }
+      refresh();
+    }, 900);
+  }
+  refresh();
+});
+document.querySelector('#btn-resume')!.addEventListener('click', () => {
+  if (!replay) return;
+  const resumePos = replay.pos;
+  stopAutoplay();
+  game.loadMoves(replay.lineMoves().slice(0, resumePos));
+  mode = 'play';
+  replay = null;
+  messageEl.textContent = `已从第 ${resumePos} 手继续对弈`;
   refresh();
 });
 
@@ -185,7 +289,7 @@ async function renderLibrary(): Promise<void> {
   }
 }
 
-/** 从棋谱库打开并重建对局 */
+/** 从棋谱库打开并进入回放 */
 async function openSavedGame(id: number): Promise<void> {
   const rec = await getGame(id);
   if (!rec) {
@@ -197,34 +301,47 @@ async function openSavedGame(id: number): Promise<void> {
     messageEl.textContent = '棋谱损坏:无法解析';
     return;
   }
-  game.loadMoves(line);
-  messageEl.textContent = `已打开「${rec.name}」,共 ${game.moveCount} 手`;
-  refresh();
+  enterReplay(line);
+  messageEl.textContent = `已打开「${rec.name}」,${messageEl.textContent}`;
 }
 
 // 当前对局存入棋谱库
 
 document.querySelector('#btn-save')!.addEventListener('click', async () => {
-  if (game.moveCount === 0) {
+  const isReplay = mode === 'replay' && replay !== null;
+  const lineMoves = isReplay ? replay!.lineMoves() : null;
+  if (isReplay && lineMoves!.length === 0) {
+    messageEl.textContent = '棋谱没有有效手数,无法保存';
+    return;
+  }
+  if (!isReplay && game.moveCount === 0) {
     messageEl.textContent = '尚未落子,无法保存';
     return;
   }
-  const text = exportGameSgf(game);
+  const text = isReplay ? exportLineSgf(lineMoves!) : exportGameSgf(game);
+  const count = isReplay ? lineMoves!.length : game.moveCount;
   const now = new Date();
   const name = `对局 ${timeText(now.getTime())}`;
-  await saveGame({ name, sgfText: text, moveCount: game.moveCount, createdAt: now.getTime() });
-  messageEl.textContent = `「${name}」已存入棋谱库`;
+  await saveGame({ name, sgfText: text, moveCount: count, createdAt: now.getTime() });
+  messageEl.textContent = `「${name}」(${count} 手)已存入棋谱库`;
   void renderLibrary();
 });
 
 // 导出当前对局为 SGF 文件
 
 document.querySelector('#btn-export')!.addEventListener('click', () => {
-  if (game.moveCount === 0) {
+  const isReplay = mode === 'replay' && replay !== null;
+  const lineMoves = isReplay ? replay!.lineMoves() : null;
+  if (isReplay && lineMoves!.length === 0) {
+    messageEl.textContent = '棋谱没有有效手数,无法导出';
+    return;
+  }
+  if (!isReplay && game.moveCount === 0) {
     messageEl.textContent = '尚未落子,无法导出';
     return;
   }
-  const text = exportGameSgf(game);
+  const text = isReplay ? exportLineSgf(lineMoves!) : exportGameSgf(game);
+  const count = isReplay ? lineMoves!.length : game.moveCount;
   const stamp = new Date()
     .toISOString()
     .replace(/[-:]/g, '')
@@ -237,7 +354,7 @@ document.querySelector('#btn-export')!.addEventListener('click', () => {
   a.download = `weiqi-${stamp}.sgf`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
-  messageEl.textContent = `已导出 ${game.moveCount} 手棋谱`;
+  messageEl.textContent = `已导出 ${count} 手棋谱`;
 });
 
 // 从 SGF 文件导入
@@ -254,12 +371,8 @@ fileInput.addEventListener('change', () => {
       messageEl.textContent = '棋谱解析失败:不是合法的 SGF 文本';
       return;
     }
-    if (!game.loadMoves(line)) {
-      messageEl.textContent = '棋谱含非法手,仅加载了部分手顺';
-    } else {
-      messageEl.textContent = `已导入 ${file.name},共 ${game.moveCount} 手`;
-    }
-    refresh();
+    enterReplay(line);
+    messageEl.textContent = `已导入 ${file.name},${messageEl.textContent}`;
   };
   reader.onerror = () => {
     messageEl.textContent = '读取文件失败';
@@ -273,6 +386,9 @@ document.querySelector('#btn-undo')!.addEventListener('click', () => {
   refresh();
 });
 document.querySelector('#btn-restart')!.addEventListener('click', () => {
+  stopAutoplay();
+  mode = 'play';
+  replay = null;
   game.restart();
   messageEl.textContent = '新对局开始';
   refresh();

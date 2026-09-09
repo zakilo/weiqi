@@ -50,6 +50,26 @@ body {
   flex: 1;
 }
 
+/* 回放控制条 */
+.replay-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.replay-controls .btn {
+  padding: 5px 10px;
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn:disabled:hover {
+  background: #fffdf7;
+}
+
 .btn {
   padding: 6px 14px;
   font-size: 14px;

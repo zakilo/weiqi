@@ -31,6 +31,11 @@ export function exportGameSgf(game: Game): string {
   return serializeSgf(buildSgfDoc(gameToLineMoves(game), meta));
 }
 
+/** 手顺直接导出为 SGF 文本(回放/导入场景,无结果属性) */
+export function exportLineSgf(moves: readonly SgfLineMove[]): string {
+  return serializeSgf(buildSgfDoc([...moves], { blackName: '黑方', whiteName: '白方' }));
+}
+
 /** SGF 文本解析为主线手顺;非法文本返回 null */
 export function parseSgfToLine(text: string): SgfLineMove[] | null {
   const root = parseSgf(text);
