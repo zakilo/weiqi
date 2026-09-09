@@ -3,6 +3,7 @@ import { BLACK, colOf, idx, rowOf, Stone, WHITE } from './core/board';
 import { BoardRenderer, COLUMN_LABELS } from './ui/board-renderer';
 import { Game } from './store/game';
 import { exportGameSgf, parseSgfToLine } from './store/game-io';
+import { deleteGame, getGame, listGames, saveGame } from './store/db';
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 
@@ -13,15 +14,26 @@ app.innerHTML = `
       <span id="status" class="status"></span>
       <span id="move-count" class="dim"></span>
       <div class="spacer"></div>
-      <button id="btn-save" class="btn">保存棋谱</button>
-      <button id="btn-import" class="btn">导入棋谱</button>
       <button id="btn-pass" class="btn">虚着</button>
       <button id="btn-undo" class="btn">悔棋</button>
       <button id="btn-restart" class="btn primary">新对局</button>
-      <input id="file-input" type="file" accept=".sgf" class="hidden" />
     </div>
-    <div class="board-wrap">
-      <canvas id="board"></canvas>
+    <div class="layout">
+      <div class="board-wrap">
+        <canvas id="board"></canvas>
+      </div>
+      <aside class="library">
+        <div class="library-head">
+          <h2>棋谱库</h2>
+          <div class="library-actions">
+            <button id="btn-save" class="btn small" title="当前对局存入棋谱库">保存</button>
+            <button id="btn-import" class="btn small" title="从 SGF 文件导入">导入</button>
+            <button id="btn-export" class="btn small" title="导出当前对局为 SGF 文件">导出</button>
+          </div>
+        </div>
+        <ul id="game-list" class="game-list"></ul>
+        <input id="file-input" type="file" accept=".sgf" class="hidden" />
+      </aside>
     </div>
     <div id="message" class="message"></div>
     <div id="result-panel" class="result-panel hidden"></div>
@@ -120,9 +132,96 @@ document.querySelector('#btn-pass')!.addEventListener('click', () => {
   refresh();
 });
 
-document.querySelector('#btn-save')!.addEventListener('click', () => {
+// ---- 棋谱库(IndexedDB) ----
+const gameListEl = document.querySelector<HTMLUListElement>('#game-list')!;
+const fileInput = document.querySelector<HTMLInputElement>('#file-input')!;
+
+function two(n: number): string {
+  return String(n).padStart(2, '0');
+}
+
+function timeText(ts: number): string {
+  const d = new Date(ts);
+  return `${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}:${two(d.getMinutes())}`;
+}
+
+async function renderLibrary(): Promise<void> {
+  const rows = await listGames();
+  gameListEl.innerHTML = '';
+  if (rows.length === 0) {
+    const li = document.createElement('li');
+    li.className = 'g-empty';
+    li.textContent = '暂无棋谱';
+    gameListEl.appendChild(li);
+    return;
+  }
+  for (const g of rows) {
+    const li = document.createElement('li');
+    li.className = 'g-item';
+    const nameEl = document.createElement('span');
+    nameEl.className = 'g-name';
+    nameEl.textContent = g.name;
+    nameEl.title = g.name;
+    const metaEl = document.createElement('span');
+    metaEl.className = 'g-meta';
+    metaEl.textContent = `${g.moveCount} 手 · ${timeText(g.createdAt)}`;
+    const delBtn = document.createElement('button');
+    delBtn.className = 'g-del';
+    delBtn.title = '删除';
+    delBtn.textContent = '×';
+
+    nameEl.addEventListener('click', () => {
+      void openSavedGame(g.id);
+    });
+    delBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await deleteGame(g.id);
+      messageEl.textContent = `已删除「${g.name}」`;
+      void renderLibrary();
+    });
+
+    li.append(nameEl, metaEl, delBtn);
+    gameListEl.appendChild(li);
+  }
+}
+
+/** 从棋谱库打开并重建对局 */
+async function openSavedGame(id: number): Promise<void> {
+  const rec = await getGame(id);
+  if (!rec) {
+    messageEl.textContent = '棋谱不存在,可能已被删除';
+    return;
+  }
+  const line = parseSgfToLine(rec.sgfText);
+  if (!line) {
+    messageEl.textContent = '棋谱损坏:无法解析';
+    return;
+  }
+  game.loadMoves(line);
+  messageEl.textContent = `已打开「${rec.name}」,共 ${game.moveCount} 手`;
+  refresh();
+}
+
+// 当前对局存入棋谱库
+
+document.querySelector('#btn-save')!.addEventListener('click', async () => {
   if (game.moveCount === 0) {
     messageEl.textContent = '尚未落子,无法保存';
+    return;
+  }
+  const text = exportGameSgf(game);
+  const now = new Date();
+  const name = `对局 ${timeText(now.getTime())}`;
+  await saveGame({ name, sgfText: text, moveCount: game.moveCount, createdAt: now.getTime() });
+  messageEl.textContent = `「${name}」已存入棋谱库`;
+  void renderLibrary();
+});
+
+// 导出当前对局为 SGF 文件
+
+document.querySelector('#btn-export')!.addEventListener('click', () => {
+  if (game.moveCount === 0) {
+    messageEl.textContent = '尚未落子,无法导出';
     return;
   }
   const text = exportGameSgf(game);
@@ -138,10 +237,11 @@ document.querySelector('#btn-save')!.addEventListener('click', () => {
   a.download = `weiqi-${stamp}.sgf`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
-  messageEl.textContent = `已保存 ${game.moveCount} 手棋谱`;
+  messageEl.textContent = `已导出 ${game.moveCount} 手棋谱`;
 });
 
-const fileInput = document.querySelector<HTMLInputElement>('#file-input')!;
+// 从 SGF 文件导入
+
 document.querySelector('#btn-import')!.addEventListener('click', () => fileInput.click());
 fileInput.addEventListener('change', () => {
   const file = fileInput.files?.[0];
@@ -182,3 +282,4 @@ document.querySelector('#btn-restart')!.addEventListener('click', () => {
 new ResizeObserver(() => board.resize()).observe(canvas);
 board.resize();
 refresh();
+void renderLibrary();
