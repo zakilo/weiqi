@@ -11,7 +11,7 @@ import {
   WorkerIn,
   WorkerOut,
 } from './analysis-engine';
-import { initBackend } from './backend';
+import { BACKEND_LABEL, initBackend } from './backend';
 import { KataGoNet } from './net';
 import { parseKataGoModel } from './weights';
 
@@ -33,10 +33,12 @@ async function handle(msg: WorkerIn): Promise<void> {
   switch (msg.type) {
     case 'init': {
       try {
-        const backend = await initBackend();
+        // 禁用 WebGPU:主线程对弈已占用 GPU,双实例易致驱动压力或页面崩溃;
+        // 分析在独立 Worker 中跑 wasm/cpu 不影响界面响应
+        const backend = await initBackend(false);
         net?.dispose();
         net = new KataGoNet(parseKataGoModel(new Uint8Array(msg.modelBytes)));
-        post({ type: 'ready', backend });
+        post({ type: 'ready', backend: BACKEND_LABEL[backend] });
       } catch (err) {
         post({ type: 'error', id: null, message: String(err) });
       }
