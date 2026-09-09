@@ -1,5 +1,4 @@
-/** 棋盘路数(本项目仅支持 19 路) */
-export const BOARD_SIZE = 19;
+import { BOARD_SIZE } from '../core/board';
 
 /** 标准 19 路星位(0 起始,列, 行) */
 export const STAR_POINTS: ReadonlyArray<readonly [number, number]> = [

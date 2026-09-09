@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { BOARD_SIZE, COLUMN_LABELS, STAR_POINTS } from '../src/ui/board-renderer';
+import { BOARD_SIZE } from '../src/core/board';
+import { COLUMN_LABELS, STAR_POINTS } from '../src/ui/board-renderer';
 
 describe('棋盘布局常量', () => {
   it('19 路棋盘', () => {
