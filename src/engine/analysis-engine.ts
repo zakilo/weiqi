@@ -56,8 +56,8 @@ export interface AnalysisSnapshot {
   candidates: CandidateInfo[];
 }
 
-/** 每步变化展开的默认推理次数 */
-export const VARIATION_PLAYOUTS = 120;
+/** 每步变化展开的默认推理次数(wasm 后端下平衡速度与质量) */
+export const VARIATION_PLAYOUTS = 24;
 /** 变化线长度(含候选首手) */
 export const VARIATION_DEPTH = 15;
 /** 候选展示数量 */
@@ -161,6 +161,8 @@ export async function searchVariation(
   const config: MctsConfig = {
     ...ANALYSIS_CONFIG,
     playouts: options.perMovePlayouts,
+    // 变化线每步推理次数少,放大批次减少前向次数(wasm 上显著提速)
+    batchSize: 16,
     dirichletWeight: 0,
   };
 

@@ -243,6 +243,8 @@ async function maybeAiMove(): Promise<void> {
   }
   const level = levelOf(levelSelect.value);
   try {
+    // 先刷新展示“AI 思考中…”(think 阻塞期间状态栏即时反馈)
+    refresh();
     const move = await aiPlayer.think(game, level.config);
     if (mode !== 'play') return;
     if (move.kind === 'pass') {
@@ -422,7 +424,8 @@ canvas.addEventListener('mouseleave', () => {
 
 document.querySelector('#btn-pass')!.addEventListener('click', () => {
   if (aiPlayer.thinking || isAiTurn()) return;
-  const passer = game.currentStone === BLACK ? WHITE : BLACK;
+  // 点击时刻 currentStone 即虚着方(pass 后会切换)
+  const passer = game.currentStone;
   game.pass();
   messageEl.textContent = game.isFinished ? '双方虚着,终局数子' : `${stoneName(passer)}虚着`;
   refresh();
