@@ -11,13 +11,18 @@ import {
   WorkerIn,
   WorkerOut,
 } from './analysis-engine';
-import { BACKEND_LABEL, initBackend } from './backend';
+import { BACKEND_LABEL, BackendKind, initBackend } from './backend';
 import { KataGoNet } from './net';
 import { parseKataGoModel } from './weights';
 
 let net: KataGoNet | null = null;
+/** 当前计算后端(init 后设置) */
+let backendKind: BackendKind | null = null;
 /** 任务代际:任何新任务/停止都会递增,旧循环据此退出 */
 let generation = 0;
+
+/** 非 WebGPU 后端每步变化线推理次数封顶(cpu 前向慢,防止变化线等待过久) */
+const SLOW_BACKEND_VARIATION_CAP = 24;
 
 const post = (msg: WorkerOut): void => {
   (self as unknown as { postMessage(msg: WorkerOut): void }).postMessage(msg);
@@ -33,12 +38,12 @@ async function handle(msg: WorkerIn): Promise<void> {
   switch (msg.type) {
     case 'init': {
       try {
-        // 禁用 WebGPU:主线程对弈已占用 GPU,双实例易致驱动压力或页面崩溃;
-        // 分析在独立 Worker 中跑 wasm/cpu 不影响界面响应
-        const backend = await initBackend(false);
+        // WebGPU 优先:分析在独立 Worker 中跑,GPU 空闲时与主线程不冲突;
+        // 不可用自动回退 wasm/cpu(回退后端变化线推理次数封顶,见 variation 分支)
+        backendKind = await initBackend();
         net?.dispose();
         net = new KataGoNet(parseKataGoModel(new Uint8Array(msg.modelBytes)));
-        post({ type: 'ready', backend: BACKEND_LABEL[backend] });
+        post({ type: 'ready', backend: BACKEND_LABEL[backendKind] });
       } catch (err) {
         post({ type: 'error', id: null, message: String(err) });
       }
@@ -70,8 +75,13 @@ async function handle(msg: WorkerIn): Promise<void> {
       }
       const gen = ++generation;
       try {
+        // 慢后端(cpu/wasm)下降低每步推理次数,避免 15 步变化线等待过久
+        const perMove =
+          backendKind === 'webgpu'
+            ? msg.perMovePlayouts
+            : Math.min(msg.perMovePlayouts, SLOW_BACKEND_VARIATION_CAP);
         const line = await searchVariation(net, requestFromWire(msg.request), msg.startMove, {
-          perMovePlayouts: msg.perMovePlayouts,
+          perMovePlayouts: perMove,
           depth: msg.depth,
           isCancelled: () => generation !== gen,
           onStep: (move, index) => {

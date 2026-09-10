@@ -23,9 +23,8 @@ export function getBackend(): BackendKind | null {
 /**
  * 依次尝试 webgpu → wasm → cpu,返回实际使用的后端。
  * wasm 后端依赖 wasm 二进制路径(由 tfjs-backend-wasm 提供)。
- * @param allowWebgpu 是否允许 WebGPU。主线程对弈与分析 Worker
- * 同时注册 GPU 后端时,个别驱动会出现双实例压力甚至页面崩溃,
- * 分析 Worker 建议传 false 走 wasm → cpu。
+ * @param allowWebgpu 是否允许 WebGPU。个别驱动在多实例 GPU 后端
+ * 并发时会不稳定,必要时可传 false 强制走 wasm → cpu。
  */
 export async function initBackend(allowWebgpu = true): Promise<BackendKind> {
   const candidates: Array<[BackendKind, () => Promise<boolean>]> = [

@@ -56,8 +56,8 @@ export interface AnalysisSnapshot {
   candidates: CandidateInfo[];
 }
 
-/** 每步变化展开的默认推理次数(wasm 后端下平衡速度与质量) */
-export const VARIATION_PLAYOUTS = 24;
+/** 每步变化展开的默认推理次数(慢后端由 Worker 封顶降级) */
+export const VARIATION_PLAYOUTS = 80;
 /** 变化线长度(含候选首手) */
 export const VARIATION_DEPTH = 15;
 /** 候选展示数量 */
