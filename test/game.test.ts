@@ -49,6 +49,46 @@ describe('对局状态机', () => {
     expect(game.getBoard().get(idx(0, 0))).toBe(0);
   });
 
+  it('人机悔棋:AI 已应则退两手,未应则退一手', () => {
+    const game = new Game();
+    game.play(3, 3); // 黑(人)
+    game.play(15, 15); // 白(AI)
+    game.play(3, 15); // 黑(人)
+    game.play(15, 3); // 白(AI)
+    expect(game.undoSince(BLACK)).toBe(2);
+    expect(game.moveCount).toBe(2);
+    expect(game.currentStone).toBe(BLACK);
+    expect(game.getBoard().get(idx(15, 3))).toBe(0);
+    expect(game.getBoard().get(idx(3, 15))).toBe(0);
+    // 黑落子后白未应,仅退黑这一手
+    expect(game.play(9, 9).ok).toBe(true);
+    expect(game.undoSince(BLACK)).toBe(1);
+    expect(game.moveCount).toBe(2);
+    expect(game.currentStone).toBe(BLACK);
+    // 尚无人类手顺时不作废
+    game.restart();
+    game.play(3, 3); // 仅有黑手顺,人类(白)未落子
+    expect(game.undoSince(WHITE)).toBe(0);
+    expect(game.moveCount).toBe(1);
+  });
+
+  it('人机悔棋:AI 虚着应手与终局一并撤销', () => {
+    const game = new Game();
+    game.play(3, 3); // 黑(人)
+    game.play(15, 15); // 白(AI)
+    game.pass(); // 黑(人)
+    game.pass(); // 白(AI) 终局
+    expect(game.isFinished).toBe(true);
+    expect(game.undoSince(BLACK)).toBe(2);
+    expect(game.moveCount).toBe(2);
+    expect(game.isFinished).toBe(false);
+    expect(game.result).toBeNull();
+    expect(game.consecutivePassCount).toBe(0);
+    expect(game.currentStone).toBe(BLACK);
+    // 退后回到人类落子,可正常继续
+    expect(game.play(9, 9).ok).toBe(true);
+  });
+
   it('终局后悔棋可继续对局', () => {
     const game = new Game();
     game.play(0, 0);

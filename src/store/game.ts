@@ -89,6 +89,19 @@ export class Game {
     }
   }
 
+  /**
+   * 人机悔棋:撤销指定方(人类)的最后一手,以及其后对手的应手
+   * 对手尚未应棋时退 1 手,已应棋时退 2 手;无该方手顺时返回 0
+   */
+  undoSince(stone: Stone): number {
+    let i = this.moves.length - 1;
+    while (i >= 0 && this.moves[i].stone !== stone) i--;
+    if (i < 0) return 0;
+    const steps = this.moves.length - i;
+    this.undo(steps);
+    return steps;
+  }
+
   /** 悔棋:重放前 N 手(默认撤销一手) */
   undo(steps = 1): void {
     const target = Math.max(0, this.moves.length - steps);

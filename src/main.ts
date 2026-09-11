@@ -137,6 +137,13 @@ function isAiTurn(): boolean {
   return false;
 }
 
+/** 人类执子(双人对弈时为 null) */
+function humanStone(): Stone | null {
+  if (vsMode === 'ai-white') return BLACK;
+  if (vsMode === 'ai-black') return WHITE;
+  return null;
+}
+
 /** 棋盘坐标文本,如 "Q16" */
 function coordText(col: number, row: number): string {
   return `${COLUMN_LABELS[col]}${row + 1}`;
@@ -663,9 +670,24 @@ fileInput.addEventListener('change', () => {
 });
 
 document.querySelector('#btn-undo')!.addEventListener('click', () => {
-  if (aiPlayer.thinking) return;
-  game.undo(1);
-  messageEl.textContent = '已悔棋';
+  if (aiPlayer.thinking) {
+    messageEl.textContent = 'AI 思考中,请稍候';
+    return;
+  }
+  const stone = humanStone();
+  let steps = 0;
+  if (stone !== null) {
+    // 人机:退回到人类上一手之前,一并撤销 AI 已走的应手
+    steps = game.undoSince(stone);
+  } else if (game.moveCount > 0) {
+    game.undo(1);
+    steps = 1;
+  }
+  if (steps === 0) {
+    messageEl.textContent = '没有可悔棋的手';
+    return;
+  }
+  messageEl.textContent = `已悔棋(退回 ${steps} 手)`;
   refresh();
   void maybeAiMove();
 });
