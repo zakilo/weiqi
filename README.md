@@ -78,6 +78,7 @@ Node 后端 (server/)  ── spawn ──▶  katago analysis(JSON 行协议,�
   ],
   "maxVisitsDefault": 200,
   "numAnalysisThreads": 4,
+  "numSearchThreads": 4,
   "nnMaxBatchSize": 8,
   "reportDuringSearchEvery": 40,
   "analysisPVLen": 15,
@@ -92,7 +93,7 @@ Node 后端 (server/)  ── spawn ──▶  katago analysis(JSON 行协议,�
 - `models[]`:`id`(唯一标识)、`name`(显示名,缺省取 id)、`file`(权重文件名或绝对路径)
 - `activeModel`:默认激活的模型 id(缺省为 `models[0]`)
 - `komi`:贴目,默认沿用项目既有 `KOMI_AREA = 3.75`(与前端计分一致,可在配置中修改)
-- `maxVisitsDefault` / `numAnalysisThreads` / `nnMaxBatchSize` / `reportDuringSearchEvery` / `analysisPVLen`:生成临时 KataGo analysis 配置时使用
+- `maxVisitsDefault` / `numAnalysisThreads` / `numSearchThreads` / `nnMaxBatchSize` / `reportDuringSearchEvery` / `analysisPVLen`:生成临时 KataGo analysis 配置时使用
 - `maxInFlightPerEngine` / `maxQueuePerEngine` / `queueTimeoutMs` / `requestTimeoutMs`:并发与限流参数(见下)
 
 支持的环境变量覆盖:

@@ -70,6 +70,21 @@ index.ts
 - **best-effort 预加载**：启动后调用 `manager.ensureActive().catch(...)`，仅告警、不阻塞服务。若未安装 KataGo 或未配置模型，服务仍正常启动，AI 功能以「未就绪」降级，本地能力不受影响。
 - **优雅退出**：监听 `SIGINT` / `SIGTERM` → `manager.stopAll()` → `server.close(() => process.exit(0))`，并通过 `setTimeout(() => process.exit(0), 3000).unref()` 兜底强制退出。
 
+### 4.1 运行前置：两个交付物与「降级」陷阱
+
+后端把推理委托给**外部 KataGo 程序**，因此运行 AI 功能需要**两个**本机产物，缺一不可：
+
+1. **KataGo 可执行文件**（`katagoPath` 指向它）——真正做神经网络推理与搜索的程序；
+2. **模型权重文件**（`.bin.gz`，登记在 `models` 且位于 `modelDir`）——只是喂给 KataGo 的 `-model` 参数。
+
+> 常见误区：只放了权重 `.bin.gz` 就以为能跑（浏览器 TF.js 时代权重即「可运行模型」，但本架构里权重只是输入）。缺程序时 `spawn` 报 `ENOENT`。macOS 安装：`brew install katago`，再把 `katagoPath` 指向 `$(brew --prefix katago)/bin/katago` 或 `/usr/local/bin/katago`。
+
+**降级特性会掩盖缺失**：`probeKatagoVersion()` 与 `ensureActive()` 都是 best-effort——KataGo 不存在时服务照常启动、`/api/health` 返回 `ok:false`、对应引擎 `status.state='error'` 且 `lastError` 记录 `spawn ... ENOENT`。好处是不崩溃、本地功能可用；代价是「服务起来了 ≠ AI 能跑」。因此**验证 AI 能力必须真正打一次 `/api/ai/think`**（或看面板里引擎是否 `ready`），不能只看进程是否存活。单测用依赖注入的假 `spawn`，不覆盖真实二进制路径，故需一条「真实引擎冒烟」作为补充门禁。
+
+> **第三个易漏点：analysis 配置键完整性。** 装好程序与权重后，`katago analysis` 仍可能对精简配置直接 `SIGABRT`——如缺少 **`numSearchThreads`** 时抛 `IOError: Could not find key 'numSearchThreads'`。analysis 模式要求 `numAnalysisThreads` 与 `numSearchThreads` 同时存在，而单测用的是假进程，无法发现这类「真实二进制才校验」的约束。`renderAnalysisConfig` 必须覆盖 KataGo 的全部必填键，并以真实引擎冒烟兜底。
+
+> **第四个易漏点：komi 必须是整数或半整数。** 本项目内部计分用 `KOMI_AREA = 3.75`（数子贴子，≈日贴 7.5），但 KataGo 只接受 **整数或 0.5 步进**的 komi（范围 [-400,400]）。直接传 3.75 会被拒：`{"error":"Must be a integer or half-integer ..."}` 且 `moveInfos` 为空。早期 `parseThink` 不区分「拒绝」与「无候选」，把空 `moveInfos` 当作 PASS——表现为**人机对弈中 AI 每手都虚着**，而服务日志无异常。修复：`buildAnalysisQuery` 与 `warmupQuery` 均经 `sanitizeKomi`（就近取半并夹到合法区间，3.75 → 4.0）；`NodeKatagoProcess.handleLine` 对带 `error` 字段的响应直接 reject，不再静默降级为虚着。
+
 ## 5. 配置系统（`server/config.ts`）
 
 `ServerConfig` 字段与默认值：
@@ -84,7 +99,8 @@ index.ts
 | `activeModel` | `null` | 默认激活模型 id（缺省取 `models[0]`） |
 | `komi` | `3.75` | 贴目（沿用 `KOMI_AREA`） |
 | `maxVisitsDefault` | `200` | 默认访问量上限 |
-| `numAnalysisThreads` | `4` | KataGo 分析线程数 |
+| `numAnalysisThreads` | `4` | KataGo 并行分析查询数 |
+| `numSearchThreads` | `4` | KataGo 单次搜索 CPU 线程数（analysis 模式必填，缺失会导致进程 `SIGABRT`） |
 | `nnMaxBatchSize` | `8` | 神经网络批大小 |
 | `reportDuringSearchEvery` | `40` | 分析中间报文间隔 |
 | `analysisPVLen` | `15` | 变化线长度 |
@@ -188,7 +204,7 @@ index.ts
 
 ### 8.3 临时分析配置（`analysis-config.ts`）
 
-- `renderAnalysisConfig(config, maxVisits)`：生成 `numAnalysisThreads / nnMaxBatchSize / maxVisits / reportDuringSearchEvery / analysisPVLen`。
+- `renderAnalysisConfig(config, maxVisits)`：生成 `numAnalysisThreads / numSearchThreads / nnMaxBatchSize / maxVisits / reportDuringSearchEvery / analysisPVLen`。
 - `createAnalysisConfig(config, maxVisits)`：`mkdtempSync(tmpdir()/'weiqi-katago-')` 写入 `analysis.cfg`，返回 `{ path, dispose }`（`dispose` 递归删除临时目录）。
 
 ## 9. 引擎状态机与并发模型

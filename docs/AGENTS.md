@@ -91,7 +91,7 @@
 - 配置文件默认读取项目根 `ai.config.json`(已 gitignore),可用 `AI_CONFIG` 指定路径;模板见 [`ai.config.example.json`](../ai.config.example.json)。
 - 支持的环境变量覆盖:`KATAGO_PATH`、`KATAGO_MODEL_DIR`、`AI_PORT`、`AI_ACTIVE_MODEL`、`AI_CONFIG`。
 - 相对路径(`modelDir` 等)基于**项目根**解析(`ROOT_DIR` = `server/` 的上一级)。
-- 关键运行参数:`maxVisitsDefault`、`numAnalysisThreads`、`nnMaxBatchSize`、`reportDuringSearchEvery`、`analysisPVLen` 会写入临时 KataGo analysis 配置;`maxInFlightPerEngine` / `maxQueuePerEngine` / `queueTimeoutMs` / `requestTimeoutMs` 控制并发与限流。
+- 关键运行参数:`maxVisitsDefault`、`numAnalysisThreads`、`numSearchThreads`、`nnMaxBatchSize`、`reportDuringSearchEvery`、`analysisPVLen` 会写入临时 KataGo analysis 配置;`maxInFlightPerEngine` / `maxQueuePerEngine` / `queueTimeoutMs` / `requestTimeoutMs` 控制并发与限流。
 - 未安装 KataGo 或未配置模型时,服务仍会启动,AI 功能以「未就绪」降级,本地功能(双人/SGF/回放)不受影响。
 
 ## 6. HTTP API(`server/api.ts`)
