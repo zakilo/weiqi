@@ -4,6 +4,7 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "lib": ["ES2022", "DOM", "DOM.Iterable", "WebWorker"],
+    "types": ["node"],
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
@@ -13,7 +14,9 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "useDefineForClassFields": true,
-    "noEmit": true
+    "noEmit": true,
+    // 允许带 .ts 后缀导入,以便 Node 原生 TS 类型剥离直跑 server/
+    "allowImportingTsExtensions": true
   },
-  "include": ["src"]
+  "include": ["src", "server"]
 }

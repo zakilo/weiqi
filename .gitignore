@@ -12,6 +12,11 @@ out/
 .env.local
 .env.*.local
 
+# 本地 AI 服务配置与模型文件
+ai.config.json
+models/
+
+
 # 日志
 logs/
 *.log

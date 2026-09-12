@@ -1,0 +1,24 @@
+{
+  "katagoPath": "/usr/local/bin/katago",
+  "modelDir": "./models",
+  "activeModel": "b18c384nbt",
+  "komi": 3.75,
+  "port": 8080,
+  "host": "0.0.0.0",
+  "models": [
+    {
+      "id": "b18c384nbt",
+      "name": "KataGo b18c384nbt",
+      "file": "kata1-b18c384nbt-s9996604416-d4316597426.bin.gz"
+    }
+  ],
+  "maxVisitsDefault": 200,
+  "numAnalysisThreads": 4,
+  "nnMaxBatchSize": 8,
+  "reportDuringSearchEvery": 40,
+  "analysisPVLen": 15,
+  "maxInFlightPerEngine": 1,
+  "maxQueuePerEngine": 8,
+  "queueTimeoutMs": 60000,
+  "requestTimeoutMs": 120000
+}
