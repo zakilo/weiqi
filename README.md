@@ -44,4 +44,6 @@ npm test           # 全量单测(vitest,node 环境)
 npm run build      # 类型检查 + 生产构建
 ```
 
+开发/预览服务器已配置 `host: true`,监听所有网卡,局域网设备可通过启动日志里打印的 `Network` 地址(如 `http://192.0.2.188:5173/`)直接访问。
+
 测试使用 vitest + fake-indexeddb,网络与 MCTS 逻辑用小型假模型 / mock 网络验证。
