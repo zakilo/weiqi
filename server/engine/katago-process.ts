@@ -167,6 +167,12 @@ export class NodeKatagoProcess implements KatagoProcessLike {
     const key = String(msg.id);
     const pending = this.pending.get(key);
     if (!pending) return;
+    if (typeof msg.error === 'string' && msg.error.length > 0) {
+      this.pending.delete(key);
+      if (pending.timer) clearTimeout(pending.timer);
+      pending.reject(new Error(`KataGo 拒绝查询:${msg.error}`));
+      return;
+    }
     if (msg.isDuringSearch) {
       pending.onReport?.(msg);
       return;

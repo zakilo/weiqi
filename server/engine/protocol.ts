@@ -39,6 +39,8 @@ export interface AnalysisResponse {
   id?: string | number;
   isDuringSearch?: boolean;
   turnNumber?: number;
+  /** KataGo 拒绝查询时返回的错误信息(如 komi 非法) */
+  error?: string;
   moveInfos?: KataMoveInfo[];
   rootInfo?: {
     winrate?: number;
@@ -52,6 +54,16 @@ export interface BuildQueryOptions {
   reportDuringSearchEvery?: number;
 }
 
+/**
+ * KataGo 仅接受整数或半整数 komi(范围 [-400,400]),否则拒绝查询。
+ * 本项目内部计分用 3.75(数子贴子,≈日贴 7.5),需就近取半后喂给 KataGo。
+ */
+export function sanitizeKomi(komi: number): number {
+  if (!Number.isFinite(komi)) return 0;
+  const stepped = Math.round(komi * 2) / 2;
+  return Math.max(-400, Math.min(400, stepped));
+}
+
 /** 构造一条 analysis 查询(不含 id) */
 export function buildAnalysisQuery(
   request: AiMoveRequest,
@@ -61,7 +73,7 @@ export function buildAnalysisQuery(
   const query: AnalysisQuery = {
     moves,
     rules: request.rules,
-    komi: request.komi,
+    komi: sanitizeKomi(request.komi),
     boardXSize: BOARD_SIZE,
     boardYSize: BOARD_SIZE,
   };

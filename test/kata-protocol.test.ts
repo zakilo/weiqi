@@ -4,6 +4,7 @@ import {
   parseAnalysis,
   parseThink,
   pickMoveByTemperature,
+  sanitizeKomi,
   toSnapshot,
   type AnalysisResponse,
 } from '../server/engine/protocol.ts';
@@ -31,7 +32,8 @@ describe('buildAnalysisQuery', () => {
       ['W', 'pass'],
     ]);
     expect(q.rules).toBe('chinese');
-    expect(q.komi).toBe(3.75);
+    // KataGo 不接受 3.75,buildAnalysisQuery 就近取半 → 4.0
+    expect(q.komi).toBe(4);
     expect(q.boardXSize).toBe(19);
     expect(q.boardYSize).toBe(19);
     expect('maxVisits' in q).toBe(false);
@@ -48,6 +50,22 @@ describe('buildAnalysisQuery', () => {
     const q = buildAnalysisQuery(REQUEST, { maxVisits: 0, reportDuringSearchEvery: -1 });
     expect(q.maxVisits).toBeUndefined();
     expect(q.reportDuringSearchEvery).toBeUndefined();
+  });
+});
+
+describe('sanitizeKomi', () => {
+  it('就近取半,已是半整数则不变', () => {
+    expect(sanitizeKomi(3.75)).toBe(4);
+    expect(sanitizeKomi(3.25)).toBe(3.5);
+    expect(sanitizeKomi(7.5)).toBe(7.5);
+    expect(sanitizeKomi(6)).toBe(6);
+    // Math.round 对 .5 向 +∞ 取整:-3.75 → -3.5
+    expect(sanitizeKomi(-3.75)).toBe(-3.5);
+  });
+  it('越界夹到 [-400,400],非数值回退 0', () => {
+    expect(sanitizeKomi(500)).toBe(400);
+    expect(sanitizeKomi(-500)).toBe(-400);
+    expect(sanitizeKomi(Number.NaN)).toBe(0);
   });
 });
 

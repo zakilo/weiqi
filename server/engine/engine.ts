@@ -10,7 +10,7 @@ import type { AnalyzeRequest, AnalyzeSnapshot, ThinkRequest, ThinkResult } from 
 import type { ModelConfig, ServerConfig } from '../config.ts';
 import type { TempConfig } from './analysis-config.ts';
 import type { AnalysisQuery, AnalysisResponse } from './protocol.ts';
-import { buildAnalysisQuery, parseThink, toSnapshot } from './protocol.ts';
+import { buildAnalysisQuery, parseThink, sanitizeKomi, toSnapshot } from './protocol.ts';
 import type { KatagoProcessLike } from './katago-process.ts';
 
 /** 排队已满时抛出,API 层映射为 HTTP 429 */
@@ -110,7 +110,7 @@ export class EngineInstance {
     return {
       moves: [],
       rules: 'chinese',
-      komi: this.deps.config.komi,
+      komi: sanitizeKomi(this.deps.config.komi),
       boardXSize: 19,
       boardYSize: 19,
       maxVisits: 1,

@@ -127,6 +127,21 @@ describe('NodeKatagoProcess', () => {
     expect(reports).toHaveLength(1);
   });
 
+  it('KataGo 返回 error 报文时拒绝查询(不静默当作空结果)', async () => {
+    const h = makeHarness();
+    h.proc.start();
+    const child = h.child();
+
+    const p = h.proc.run(QUERY);
+    const id = (JSON.parse(child.stdin.writes[0]!) as { id: string }).id;
+
+    child.stdout.emit(
+      'data',
+      `${JSON.stringify({ id, error: 'Must be a integer or half-integer', field: 'komi' })}\n`,
+    );
+    await expect(p).rejects.toThrow(/KataGo 拒绝查询/);
+  });
+
   it('进程退出时拒绝未完成查询', async () => {
     const h = makeHarness();
     h.proc.start();
