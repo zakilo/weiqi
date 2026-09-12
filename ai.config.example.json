@@ -14,6 +14,7 @@
   ],
   "maxVisitsDefault": 200,
   "numAnalysisThreads": 4,
+  "numSearchThreads": 4,
   "nnMaxBatchSize": 8,
   "reportDuringSearchEvery": 40,
   "analysisPVLen": 15,

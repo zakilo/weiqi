@@ -77,6 +77,7 @@ function makeConfig(overrides: Partial<ServerConfig> = {}): ServerConfig {
     komi: 3.75,
     maxVisitsDefault: 200,
     numAnalysisThreads: 4,
+    numSearchThreads: 4,
     nnMaxBatchSize: 8,
     reportDuringSearchEvery: 40,
     analysisPVLen: 15,

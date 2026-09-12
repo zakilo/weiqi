@@ -13,6 +13,7 @@ export function renderAnalysisConfig(config: ServerConfig, maxVisits: number): s
   const lines = [
     '# 由 weiqi server 自动生成(无需手动编辑)',
     `numAnalysisThreads = ${Math.max(1, Math.floor(config.numAnalysisThreads))}`,
+    `numSearchThreads = ${Math.max(1, Math.floor(config.numSearchThreads))}`,
     `nnMaxBatchSize = ${Math.max(1, Math.floor(config.nnMaxBatchSize))}`,
     `maxVisits = ${Math.max(1, Math.floor(maxVisits))}`,
     `reportDuringSearchEvery = ${Math.max(1, Math.floor(config.reportDuringSearchEvery))}`,

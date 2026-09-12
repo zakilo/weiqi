@@ -29,6 +29,8 @@ export interface ServerConfig {
   /** 默认搜索访问次数上限 */
   maxVisitsDefault: number;
   numAnalysisThreads: number;
+  /** 单次搜索使用的 CPU 线程数(KataGo analysis 必填) */
+  numSearchThreads: number;
   nnMaxBatchSize: number;
   reportDuringSearchEvery: number;
   analysisPVLen: number;
@@ -52,6 +54,7 @@ export const DEFAULT_CONFIG: ServerConfig = {
   komi: 3.75,
   maxVisitsDefault: 200,
   numAnalysisThreads: 4,
+  numSearchThreads: 4,
   nnMaxBatchSize: 8,
   reportDuringSearchEvery: 40,
   analysisPVLen: 15,
@@ -120,6 +123,7 @@ export function loadConfig(options: LoadConfigOptions = {}): ServerConfig {
     komi: toNumber(file.komi, DEFAULT_CONFIG.komi),
     maxVisitsDefault: toNumber(file.maxVisitsDefault, DEFAULT_CONFIG.maxVisitsDefault),
     numAnalysisThreads: toNumber(file.numAnalysisThreads, DEFAULT_CONFIG.numAnalysisThreads),
+    numSearchThreads: toNumber(file.numSearchThreads, DEFAULT_CONFIG.numSearchThreads),
     nnMaxBatchSize: toNumber(file.nnMaxBatchSize, DEFAULT_CONFIG.nnMaxBatchSize),
     reportDuringSearchEvery: toNumber(file.reportDuringSearchEvery, DEFAULT_CONFIG.reportDuringSearchEvery),
     analysisPVLen: toNumber(file.analysisPVLen, DEFAULT_CONFIG.analysisPVLen),
