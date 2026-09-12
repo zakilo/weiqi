@@ -6,29 +6,24 @@ import { exportGameSgf, exportLineSgf, parseSgfToLine } from './store/game-io';
 import { SgfLineMove } from './core/sgf';
 import { deleteGame, getGame, listGames, saveGame } from './store/db';
 import { Replay } from './store/replay';
-import {
-  getCachedModelBytes,
-  importModelFromFile,
-  LoadPhase,
-  loadModelBytes,
-  MODEL_B18,
-} from './engine/model-loader';
-import { AiPlayer, levelOf } from './engine/ai-player';
-import { AnalysisClient } from './engine/analysis-client';
-import { AnalysisSnapshot, AnalysisState } from './engine/analysis-engine';
-import { VARIATION_DEPTH, VARIATION_PLAYOUTS } from './engine/analysis-engine';
+import { VARIATION_DEPTH } from './engine/analysis-engine';
 import { KOMI_AREA } from './core/scoring';
 import { PASS } from './engine/mcts';
+import { ServiceClient } from './engine/remote/service-client';
+import { RemoteAiPlayer, remoteLevelOf } from './engine/remote/remote-ai-player';
+import { RemoteAnalysisClient, type RemoteAnalysisState } from './engine/remote/remote-analysis';
+import type {
+  AnalyzeSnapshot,
+  EngineStatus,
+  ModelInfo,
+  ServiceStatus,
+} from './engine/remote/protocol';
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 
 app.innerHTML = `
   <div class="shell">
     <h1>围棋 · 本地对弈</h1>
-    <div id="load-bar-wrap" class="load-bar-wrap hidden">
-      <div id="load-bar-fill" class="load-bar-fill"></div>
-      <span id="load-bar-text" class="load-bar-text"></span>
-    </div>
     <div class="toolbar">
       <span id="status" class="status"></span>
       <span id="move-count" class="dim"></span>
@@ -78,17 +73,13 @@ app.innerHTML = `
           <ul id="candidate-list" class="candidate-list"></ul>
           <div id="variation-list" class="variation-list"></div>
         </div>
-        <div class="model-panel">
+        <div class="service-panel">
           <div class="library-head">
-            <h2>AI 模型</h2>
-            <div class="library-actions">
-              <button id="btn-load-model" class="btn small" title="从网络下载权重">下载</button>
-              <button id="btn-import-model" class="btn small" title="从本地文件导入权重">导入</button>
-            </div>
+            <h2>AI 服务</h2>
+            <span id="service-conn" class="badge">检查中…</span>
           </div>
-          <div id="model-status" class="g-empty">检查中…</div>
-          <a id="model-manual-link" class="model-hint" target="_blank" rel="noopener" href="${MODEL_B18.urls[0]}">网络下载受限?点此在浏览器中打开权重文件,再用「导入」加载</a>
-          <input id="model-file-input" type="file" accept=".bin,.bin.gz,.gz" class="hidden" />
+          <div id="service-paths" class="service-paths"></div>
+          <ul id="service-models" class="service-models"></ul>
         </div>
       </aside>
     </div>
@@ -116,11 +107,12 @@ let autoplayTimer: ReturnType<typeof setInterval> | null = null;
 
 /** 对弈模式:双人 / AI 执白 / AI 执黑 */
 let vsMode: 'human' | 'ai-white' | 'ai-black' = 'human';
-const aiPlayer = new AiPlayer();
+const serviceClient = new ServiceClient();
+const aiPlayer = new RemoteAiPlayer(serviceClient);
 
-/** 回放分析:Worker 客户端与展示状态 */
-const analysisClient = new AnalysisClient();
-let analysisSnapshot: AnalysisSnapshot | null = null;
+/** 回放分析:远端服务客户端与展示状态 */
+const analysisClient = new RemoteAnalysisClient(serviceClient);
+let analysisSnapshot: AnalyzeSnapshot | null = null;
 let variationLine: number[] = [];
 let analysisTimer: ReturnType<typeof setTimeout> | null = null;
 let analysisBackend = '';
@@ -245,14 +237,14 @@ function tryPlay(col: number, row: number): void {
 async function maybeAiMove(): Promise<void> {
   if (!isAiTurn() || aiPlayer.thinking) return;
   if (!aiPlayer.isReady) {
-    messageEl.textContent = 'AI 模型未加载:请先在侧栏下载或导入模型';
+    messageEl.textContent = 'AI 服务未连接:请确认本机后端已启动并加载模型';
     return;
   }
-  const level = levelOf(levelSelect.value);
+  const level = remoteLevelOf(levelSelect.value);
   try {
     // 先刷新展示“AI 思考中…”(think 阻塞期间状态栏即时反馈)
     refresh();
-    const move = await aiPlayer.think(game, level.config);
+    const move = await aiPlayer.think(game, level);
     if (mode !== 'play') return;
     if (move.kind === 'pass') {
       game.pass();
@@ -275,20 +267,14 @@ async function maybeAiMove(): Promise<void> {
 
 // ---- 回放暂停分析(Worker 持续分析 + 变化线) ----
 
-/** 当前回放视角的分析局面 */
-function analysisState(): AnalysisState | null {
+/** 当前回放视角的分析请求(从空盘起的完整手顺 + komi) */
+function analysisState(): RemoteAnalysisState | null {
   if (!replay) return null;
-  const recentMoves = replay.recentMoves(5).map((m) => ({
-    stone: m.stone as Stone,
+  const moves = replay.lineMoves().slice(0, replay.pos).map((m) => ({
+    stone: m.stone === BLACK ? ('B' as const) : ('W' as const),
     pos: m.col === null || m.row === null ? null : idx(m.col, m.row),
   }));
-  return {
-    board: replay.board(),
-    stone: replay.nextStone(),
-    recentMoves,
-    komi: KOMI_AREA,
-    prevHash: replay.prevHash(),
-  };
+  return { moves, komi: KOMI_AREA };
 }
 
 /** 停止分析并清空展示 */
@@ -315,21 +301,16 @@ function scheduleAnalysis(): void {
   }, 250);
 }
 
-/** 读取缓存模型并让 Worker 分析当前局面 */
+/** 连接服务并分析当前回放局面 */
 async function startAnalysis(): Promise<void> {
   const state = analysisState();
   if (!state) return;
   try {
-    const bytes = await getCachedModelBytes(MODEL_B18.id);
-    if (!bytes) {
-      analysisStatusEl.textContent = '未缓存模型';
-      return;
-    }
-    analysisStatusEl.textContent = '准备中…';
-    const backend = await analysisClient.ensure(bytes);
+    analysisStatusEl.textContent = '连接服务中…';
+    const backend = await analysisClient.ensure();
     analysisBackend = backend;
-  } catch (e) {
-    analysisStatusEl.textContent = '分析不可用';
+  } catch {
+    analysisStatusEl.textContent = 'AI 服务不可用';
     return;
   }
   // 若期间已离开回放/跳步,放弃
@@ -340,16 +321,6 @@ async function startAnalysis(): Promise<void> {
 analysisClient.callbacks.onSnapshot = (snap) => {
   analysisSnapshot = snap;
   renderCandidateList();
-  refresh();
-};
-analysisClient.callbacks.onVariationStep = (move, index) => {
-  variationLine[index] = move;
-  renderVariationList();
-  refresh();
-};
-analysisClient.callbacks.onVariationDone = (line) => {
-  variationLine = line;
-  renderVariationList();
   refresh();
 };
 analysisClient.callbacks.onError = (message) => {
@@ -393,12 +364,9 @@ candidateListEl.addEventListener('click', (e) => {
   if (!li) return;
   const pos = Number(li.dataset.pos);
   if (!Number.isInteger(pos)) return;
-  const state = analysisState();
-  if (!state) return;
-  variationLine = [];
+  const candidate = analysisSnapshot?.candidates.find((c) => c.pos === pos);
+  variationLine = candidate ? candidate.pv.slice(0, VARIATION_DEPTH) : [];
   renderVariationList();
-  analysisStatusEl.textContent = '变化线展开中…';
-  analysisClient.requestVariation(state, pos, VARIATION_DEPTH, VARIATION_PLAYOUTS);
   refresh();
 });
 
@@ -709,96 +677,157 @@ board.resize();
 refresh();
 void renderLibrary();
 
-// ---- 模型加载(下载/缓存/进度) ----
-const loadBarWrap = document.querySelector<HTMLDivElement>('#load-bar-wrap')!;
-const loadBarFill = document.querySelector<HTMLDivElement>('#load-bar-fill')!;
-const loadBarText = document.querySelector<HTMLSpanElement>('#load-bar-text')!;
-const modelStatusEl = document.querySelector<HTMLDivElement>('#model-status')!;
-const modelFileInput = document.querySelector<HTMLInputElement>('#model-file-input')!;
+// ---- AI 服务面板(远端模型管理与状态) ----
+const serviceConnEl = document.querySelector<HTMLSpanElement>('#service-conn')!;
+const servicePathsEl = document.querySelector<HTMLDivElement>('#service-paths')!;
+const serviceModelsEl = document.querySelector<HTMLUListElement>('#service-models')!;
 
-let modelLoading = false;
+let serviceStatus: ServiceStatus | null = null;
+let serviceModelList: ModelInfo[] = [];
 
-const PHASE_TEXT: Record<LoadPhase, string> = {
-  download: '下载模型',
-  decompress: '解压模型',
+const ENGINE_STATE_TEXT: Record<EngineStatus['state'], string> = {
+  starting: '启动中',
+  ready: '就绪',
+  busy: '忙碌',
+  error: '错误',
+  stopped: '未运行',
 };
+
+function escapeHtml(text: string): string {
+  return text.replace(
+    /[&<>"']/g,
+    (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]!,
+  );
+}
 
 function mb(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-function setLoadBar(show: boolean, percent: number, text: string): void {
-  loadBarWrap.classList.toggle('hidden', !show);
-  loadBarFill.style.width = `${Math.max(0, Math.min(100, percent))}%`;
-  loadBarText.textContent = text;
-}
-
-function setModelStatus(text: string): void {
-  modelStatusEl.textContent = text;
-}
-
-async function refreshModelStatus(): Promise<void> {
+/** 轮询服务状态并刷新面板 */
+async function refreshService(): Promise<void> {
   try {
-    const cached = await getCachedModelBytes(MODEL_B18.id);
-    setModelStatus(cached ? `已缓存 ${mb(cached.byteLength)}${aiPlayer.isReady ? ` · ${aiPlayer.backendLabel}` : ' · 未载入内存'}` : '未加载');
+    const [models, status] = await Promise.all([serviceClient.models(), serviceClient.status()]);
+    serviceModelList = models.models;
+    serviceStatus = status;
+    aiPlayer.setReady(true);
+    serviceConnEl.textContent = '已连接';
+    serviceConnEl.classList.add('badge-ok');
+    serviceConnEl.classList.remove('badge-err');
   } catch {
-    setModelStatus('存储不可用');
+    serviceStatus = null;
+    serviceModelList = [];
+    aiPlayer.setReady(false);
+    serviceConnEl.textContent = '未连接';
+    serviceConnEl.classList.add('badge-err');
+    serviceConnEl.classList.remove('badge-ok');
+  }
+  renderServicePanel();
+}
+
+function renderServicePanel(): void {
+  serviceModelsEl.innerHTML = '';
+  if (!serviceStatus) {
+    servicePathsEl.textContent = '';
+    const li = document.createElement('li');
+    li.className = 'g-empty';
+    li.textContent = 'AI 服务不可用:请先启动后端(node server/index.ts)并配置 ai.config.json';
+    serviceModelsEl.appendChild(li);
+    return;
+  }
+
+  const { katagoPath, modelDir } = serviceStatus.config;
+  servicePathsEl.innerHTML =
+    `<span title="${escapeHtml(katagoPath)}">KataGo:${escapeHtml(katagoPath)}</span>` +
+    `<span title="${escapeHtml(modelDir)}">模型目录:${escapeHtml(modelDir)}</span>`;
+
+  if (serviceModelList.length === 0) {
+    const li = document.createElement('li');
+    li.className = 'g-empty';
+    li.textContent = '未配置模型:请在 ai.config.json 的 models 中登记';
+    serviceModelsEl.appendChild(li);
+    return;
+  }
+
+  const engineByModel = new Map(serviceStatus.engines.map((e) => [e.modelId, e]));
+  for (const m of serviceModelList) {
+    const engine = engineByModel.get(m.id);
+    const isActive = serviceStatus.active === m.id;
+    const state = engine?.state ?? 'stopped';
+
+    const li = document.createElement('li');
+    li.className = 'svc-item';
+
+    const head = document.createElement('div');
+    head.className = 'svc-head';
+    const nameEl = document.createElement('span');
+    nameEl.className = 'svc-name';
+    nameEl.textContent = m.name;
+    nameEl.title = m.name;
+    const stateBadge = document.createElement('span');
+    stateBadge.className = `badge badge-${state}`;
+    stateBadge.textContent = ENGINE_STATE_TEXT[state];
+    head.append(nameEl, stateBadge);
+    if (isActive) {
+      const activeBadge = document.createElement('span');
+      activeBadge.className = 'badge badge-active';
+      activeBadge.textContent = '默认';
+      head.appendChild(activeBadge);
+    }
+
+    const meta = document.createElement('div');
+    meta.className = 'svc-meta';
+    const sizeText = m.sizeBytes === null ? '文件缺失' : mb(m.sizeBytes);
+    const runText = engine
+      ? `pid ${engine.pid ?? '-'} · 进行 ${engine.inFlight} · 排队 ${engine.queued} · 累计 ${engine.totalRequests}`
+      : '未运行';
+    meta.textContent = `${sizeText} · ${runText}`;
+    if (engine?.lastError) {
+      meta.title = engine.lastError;
+      meta.classList.add('svc-error');
+    }
+
+    const actions = document.createElement('div');
+    actions.className = 'svc-actions';
+    const loadBtn = document.createElement('button');
+    loadBtn.className = 'btn small';
+    loadBtn.textContent = '加载';
+    loadBtn.disabled = state === 'starting' || state === 'ready' || state === 'busy';
+    loadBtn.addEventListener('click', () => void serviceAction('load', m.id));
+    const unloadBtn = document.createElement('button');
+    unloadBtn.className = 'btn small';
+    unloadBtn.textContent = '卸载';
+    unloadBtn.disabled = !engine;
+    unloadBtn.addEventListener('click', () => void serviceAction('unload', m.id));
+    const activateBtn = document.createElement('button');
+    activateBtn.className = 'btn small primary';
+    activateBtn.textContent = '设为默认';
+    activateBtn.disabled = isActive;
+    activateBtn.addEventListener('click', () => void serviceAction('activate', m.id));
+    actions.append(loadBtn, unloadBtn, activateBtn);
+
+    li.append(head, meta, actions);
+    serviceModelsEl.appendChild(li);
   }
 }
 
-document.querySelector('#btn-load-model')!.addEventListener('click', async () => {
-  if (modelLoading) return;
-  modelLoading = true;
-  setLoadBar(true, 0, `${PHASE_TEXT.download} 0%`);
+/** 加载 / 卸载 / 设为默认 */
+async function serviceAction(
+  action: 'load' | 'unload' | 'activate',
+  id: string,
+): Promise<void> {
+  const verb = action === 'load' ? '加载' : action === 'unload' ? '卸载' : '设为默认';
   try {
-    const bytes = await loadModelBytes(MODEL_B18, (phase, loaded, total) => {
-      const percent = total ? (loaded / total) * 100 : 0;
-      setLoadBar(true, percent, `${PHASE_TEXT[phase]} ${mb(loaded)}${total ? ` / ${mb(total)}` : ''}`);
-    });
-    await loadAiModel(bytes);
-    messageEl.textContent = `模型「${MODEL_B18.name}」加载完成(${aiPlayer.backendLabel})`;
+    if (action === 'load') await serviceClient.loadModel(id);
+    else if (action === 'unload') await serviceClient.unloadModel(id);
+    else await serviceClient.activateModel(id);
+    messageEl.textContent = `模型「${id}」${verb}完成`;
   } catch (e) {
-    setModelStatus('下载失败');
-    messageEl.textContent = `模型下载失败:${String(e)}。可点侧栏「手动下载」链接在浏览器中打开权重文件,再用「导入」按钮加载`;
-  } finally {
-    modelLoading = false;
-    setLoadBar(false, 0, '');
-    refresh();
-    void maybeAiMove();
+    messageEl.textContent = `${verb}失败:${e instanceof Error ? e.message : String(e)}`;
   }
-});
-
-document.querySelector('#btn-import-model')!.addEventListener('click', () => modelFileInput.click());
-modelFileInput.addEventListener('change', async () => {
-  const file = modelFileInput.files?.[0];
-  modelFileInput.value = '';
-  if (!file || modelLoading) return;
-  modelLoading = true;
-  setLoadBar(true, 0, `${PHASE_TEXT.decompress} 0%`);
-  try {
-    const bytes = await importModelFromFile(MODEL_B18, file, (phase, loaded) => {
-      setLoadBar(true, 0, `${PHASE_TEXT[phase]} ${mb(loaded)}`);
-    });
-    await loadAiModel(bytes);
-    messageEl.textContent = `模型已从 ${file.name} 导入(${aiPlayer.backendLabel})`;
-  } catch (e) {
-    setModelStatus('导入失败');
-    messageEl.textContent = `模型导入失败:${String(e)}`;
-  } finally {
-    modelLoading = false;
-    setLoadBar(false, 0, '');
-    refresh();
-    void maybeAiMove();
-  }
-});
-
-/** 解析权重建网并更新状态(下载与导入共用) */
-async function loadAiModel(bytes: ArrayBuffer): Promise<void> {
-  setLoadBar(true, 0, '解析权重与初始化计算后端');
-  setModelStatus('解析权重中…');
-  await aiPlayer.loadModelBytes(new Uint8Array(bytes));
-  setModelStatus(`就绪 ${mb(bytes.byteLength)} · ${aiPlayer.backendLabel} · ${aiPlayer.modelName ?? ''}`);
-  scheduleAnalysis(); // 若正在回放暂停,让分析 Worker 也加载模型
+  await refreshService();
+  void maybeAiMove();
 }
 
-void refreshModelStatus();
+void refreshService();
+window.setInterval(() => void refreshService(), 2000);
