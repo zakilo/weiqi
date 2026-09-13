@@ -65,7 +65,7 @@ Node 后端 (server/)  ── spawn ──▶  katago analysis(JSON 行协议,�
   "katagoPath": "/usr/local/bin/katago",
   "modelDir": "./models",
   "activeModel": "b18c384nbt",
-  "komi": 3.75,
+  "komi": 3.5,
   "port": 8080,
   "host": "0.0.0.0",
   "models": [
@@ -91,7 +91,7 @@ Node 后端 (server/)  ── spawn ──▶  katago analysis(JSON 行协议,�
 - `katagoPath` / `modelDir`:KataGo 可执行路径与模型目录(`modelDir` 相对路径基于项目根解析,`models[].file` 相对路径拼接到 `modelDir`)
 - `models[]`:`id`(唯一标识)、`name`(显示名,缺省取 id)、`file`(权重文件名或绝对路径)
 - `activeModel`:默认激活的模型 id(缺省为 `models[0]`)
-- `komi`:贴目,默认沿用项目既有 `KOMI_AREA = 3.75`(与前端计分一致,可在配置中修改)
+- `komi`:贴目,默认与前端计分常量 `KOMI_AREA = 3.5` 一致(取 KataGo 合法的半整数,仅用于 warmup;真实对局 komi 由客户端随请求携带)
 - `maxVisitsDefault` / `numAnalysisThreads` / `numSearchThreads` / `nnMaxBatchSize` / `reportDuringSearchEvery` / `analysisPVLen`:生成临时 KataGo analysis 配置时使用
 - `maxInFlightPerEngine` / `maxQueuePerEngine` / `queueTimeoutMs` / `requestTimeoutMs`:并发与限流参数(见下)
 

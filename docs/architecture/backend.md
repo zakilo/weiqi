@@ -83,7 +83,7 @@ index.ts
 
 > **第三个易漏点：analysis 配置键完整性。** 装好程序与权重后，`katago analysis` 仍可能对精简配置直接 `SIGABRT`——如缺少 **`numSearchThreads`** 时抛 `IOError: Could not find key 'numSearchThreads'`。analysis 模式要求 `numAnalysisThreads` 与 `numSearchThreads` 同时存在，而单测用的是假进程，无法发现这类「真实二进制才校验」的约束。`renderAnalysisConfig` 必须覆盖 KataGo 的全部必填键，并以真实引擎冒烟兜底。
 
-> **第四个易漏点：komi 必须是整数或半整数。** 本项目内部计分用 `KOMI_AREA = 3.75`（数子贴子，≈日贴 7.5），但 KataGo 只接受 **整数或 0.5 步进**的 komi（范围 [-400,400]）。直接传 3.75 会被拒：`{"error":"Must be a integer or half-integer ..."}` 且 `moveInfos` 为空。早期 `parseThink` 不区分「拒绝」与「无候选」，把空 `moveInfos` 当作 PASS——表现为**人机对弈中 AI 每手都虚着**，而服务日志无异常。修复：`buildAnalysisQuery` 与 `warmupQuery` 均经 `sanitizeKomi`（就近取半并夹到合法区间，3.75 → 4.0）；`NodeKatagoProcess.handleLine` 对带 `error` 字段的响应直接 reject，不再静默降级为虚着。
+> **第四个易漏点：komi 必须是整数或半整数。** 本项目内部计分用 `KOMI_AREA = 3.75`（数子贴子，≈日贴 7.5），但 KataGo 只接受 **整数或 0.5 步进**的 komi（范围 [-400,400]）。直接传 3.75 会被拒：`{"error":"Must be a integer or half-integer ..."}` 且 `moveInfos` 为空。早期 `parseThink` 不区分「拒绝」与「无候选」，把空 `moveInfos` 当作 PASS——表现为**人机对弈中 AI 每手都虚着**，而服务日志无异常。修复：`buildAnalysisQuery` 与 `warmupQuery` 均经 `sanitizeKomi`（就近取半并夹到合法区间）兜底；`NodeKatagoProcess.handleLine` 对带 `error` 字段的响应直接 reject，不再静默降级为虚着。**最终决定**：为使最终结算与 AI 评估严格一致，已将内部贴子 `KOMI_AREA` 从 3.75 改为 KataGo 合法的半整数 3.5（评分 / think / analyze 共用同一常量），`sanitizeKomi` 退化为防御外部非法值的安全网。
 
 ## 5. 配置系统（`server/config.ts`）
 
@@ -97,7 +97,7 @@ index.ts
 | `modelDir` | `'./models'` | 权重目录（相对路径基于项目根解析） |
 | `models` | `[]` | `{ id, name, file }[]` 模型清单 |
 | `activeModel` | `null` | 默认激活模型 id（缺省取 `models[0]`） |
-| `komi` | `3.75` | 贴目（沿用 `KOMI_AREA`） |
+| `komi` | `3.5` | 贴目（沿用 `KOMI_AREA`，KataGo 合法半整数） |
 | `maxVisitsDefault` | `200` | 默认访问量上限 |
 | `numAnalysisThreads` | `4` | KataGo 并行分析查询数 |
 | `numSearchThreads` | `4` | KataGo 单次搜索 CPU 线程数（analysis 模式必填，缺失会导致进程 `SIGABRT`） |
