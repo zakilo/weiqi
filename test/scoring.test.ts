@@ -3,7 +3,7 @@ import { BLACK, Board, idx, WHITE } from '../src/core/board';
 import { KOMI_AREA, scoreGame } from '../src/core/scoring';
 
 describe('数子结算', () => {
-  it('空棋盘:黑 0 对白贴子 3.75,白胜', () => {
+  it('空棋盘:黑 0 对白贴子 3.5,白胜', () => {
     const r = scoreGame(new Board());
     expect(r.blackStones).toBe(0);
     expect(r.whiteStones).toBe(0);
@@ -14,7 +14,7 @@ describe('数子结算', () => {
     expect(r.winner).toBe(WHITE);
   });
 
-  it('黑白各三子无围空:白胜 3.75 子', () => {
+  it('黑白各三子无围空:白胜 3.5 子', () => {
     const board = new Board();
     for (const [c, r] of [
       [0, 0],
@@ -39,7 +39,7 @@ describe('数子结算', () => {
     expect(r.winner).toBe(WHITE);
   });
 
-  it('黑围一目:黑 5 对白 4.75,黑胜', () => {
+  it('黑围一目:黑 5 对白 4.5,黑胜', () => {
     const board = new Board();
     // 黑四子围住中心点 (10,10)
     for (const [c, r] of [

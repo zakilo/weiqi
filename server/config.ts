@@ -25,6 +25,7 @@ export interface ServerConfig {
   models: ModelConfig[];
   /** 当前激活模型 id */
   activeModel: string | null;
+  /** 贴目(仅 warmup 用;真实对局 komi 由客户端随请求携带 KOMI_AREA) */
   komi: number;
   /** 默认搜索访问次数上限 */
   maxVisitsDefault: number;
@@ -51,7 +52,7 @@ export const DEFAULT_CONFIG: ServerConfig = {
   modelDir: './models',
   models: [],
   activeModel: null,
-  komi: 3.75,
+  komi: 3.5,
   maxVisitsDefault: 200,
   numAnalysisThreads: 4,
   numSearchThreads: 4,

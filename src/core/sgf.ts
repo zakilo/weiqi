@@ -19,7 +19,7 @@ export interface SgfLineMove {
 export interface SgfGameMeta {
   blackName?: string;
   whiteName?: string;
-  /** 结果,如 "B+3.75"、"W+R" */
+  /** 结果,如 "B+3.5"、"W+R" */
   result?: string;
   /** 贴目(标准 SGF 用目数) */
   komi?: number;

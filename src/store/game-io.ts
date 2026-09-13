@@ -1,4 +1,5 @@
 import { colOf, rowOf } from '../core/board';
+import { KOMI_AREA } from '../core/scoring';
 import {
   buildSgfDoc,
   extractMainLine,
@@ -18,11 +19,12 @@ export function gameToLineMoves(game: Game): SgfLineMove[] {
   );
 }
 
-/** 对局导出为 SGF 文本;终局时写入结果(如 B+3.75) */
+/** 对局导出为 SGF 文本;写入真实贴子,终局时写入结果(如 B+3.5) */
 export function exportGameSgf(game: Game): string {
   const meta: SgfGameMeta = {
     blackName: '黑方',
     whiteName: '白方',
+    komi: KOMI_AREA,
   };
   if (game.result) {
     const r = game.result;

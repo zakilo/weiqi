@@ -1,7 +1,7 @@
 import { BLACK, Board, BOARD_SIZE, EMPTY, Stone, WHITE } from './board';
 
-/** 中国规则贴子(数子法) */
-export const KOMI_AREA = 3.75;
+/** 中国规则贴子(数子法);取 KataGo 合法的半整数,使最终结算与 AI 评估严格一致 */
+export const KOMI_AREA = 3.5;
 /** 日本规则贴目(数目法,备用) */
 export const KOMI_TERRITORY = 7.5;
 

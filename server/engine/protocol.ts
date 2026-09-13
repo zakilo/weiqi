@@ -56,7 +56,8 @@ export interface BuildQueryOptions {
 
 /**
  * KataGo 仅接受整数或半整数 komi(范围 [-400,400]),否则拒绝查询。
- * 本项目内部计分用 3.75(数子贴子,≈日贴 7.5),需就近取半后喂给 KataGo。
+ * 本项目内部贴子已取合法半整数(KOMI_AREA = 3.5),正常透传即可;
+ * 此函数作为兜底,防御外部请求传入非法 komi(如 3.75)时就近取半并夹到合法区间。
  */
 export function sanitizeKomi(komi: number): number {
   if (!Number.isFinite(komi)) return 0;

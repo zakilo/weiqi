@@ -23,7 +23,7 @@ describe('对局状态机', () => {
     game.pass();
     expect(game.isFinished).toBe(true);
     expect(game.result).not.toBeNull();
-    // 黑 1 子,白 1 子 + 贴 3.75 → 白胜
+    // 黑 1 子,白 1 子 + 贴 3.5 → 白胜
     expect(game.result!.winner).toBe(WHITE);
     // 终局后不可再落子
     expect(game.play(9, 9)).toEqual({ ok: false, reason: 'game-over' });
