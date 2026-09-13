@@ -3,9 +3,8 @@
  * 但思考走远端服务。难度档位用 maxVisits / maxTemperature 表达(playouts 语义映射)。
  * 因不加载本地模型,入门..高手只调节访问次数与温度。
  */
-import { BLACK, colOf, rowOf } from '../../core/board';
+import { BLACK, colOf, PASS, rowOf } from '../../core/board';
 import { KOMI_AREA } from '../../core/scoring';
-import { PASS } from '../mcts';
 import type { Game } from '../../store/game';
 import type { ServiceClient } from './service-client';
 

@@ -40,7 +40,6 @@
 | `src/engine/remote/remote-ai-player.ts` | 远端 AI 玩家：难度档位 + `think` 调用 |
 | `src/engine/remote/remote-analysis.ts` | 远端分析客户端：`analyze` 流 + 取消 |
 | `src/ui/board-renderer.ts` | Canvas 棋盘渲染器 |
-| `src/engine/`（其余文件） | **遗留的本地 TF.js 推理路径**（见第 9 节，不再被 `main.ts` 引用） |
 
 各目录 `index.ts` 为桶文件（re-export）。
 
@@ -177,17 +176,13 @@ AI 走子/分析 ──▶ engine/remote/* ──HTTP──▶ 后端 server/
   - `enterReplay()` / `renderLibrary()` / `openSavedGame()`：回放与棋谱库；
   - `refreshService()`（每 2s 轮询 `models` + `status`）/ `renderServicePanel()` / `serviceAction()`：AI 服务面板。
 - `new ResizeObserver(() => board.resize()).observe(canvas)` 响应尺寸变化。
-- **常量接入**：`VARIATION_DEPTH`（`./engine/analysis-engine`，值 15）、`PASS`（`./engine/mcts`），仅取这两个常量，其余遗留模块不再接线。
+- **常量来源**：`PASS`（`./core/board`）、`VARIATION_DEPTH`（`main.ts` 本地常量，值 15）。
 
-## 9. 遗留 TF.js 推理路径（保留但不再使用）
+## 9. AI 路径
 
-`src/engine/{features, net, weights, mcts, ai-player, backend, analysis-engine, analysis-worker, analysis-client, model-loader}.ts` 是**早期本地 TF.js 推理路径**：
+当前只有一条 AI 路径：`src/engine/remote/*` → 后端 KataGo。早期本地 TF.js 推理模块（`features` / `net` / `weights` / `mcts` / `ai-player` / `backend` / `analysis-engine` / `analysis-worker` / `analysis-client` / `model-loader`）及其单测**已移除**，`@tensorflow/*` 依赖亦不再使用。
 
-- `main.ts` 仅从中取两个常量（`PASS`、`VARIATION_DEPTH`），其余不再引用；
-- 这些模块**仍有单测覆盖并需继续通过**；除非任务明确要求，**不要扩展或删除**它们；
-- 相关依赖（`@tensorflow/tfjs*`）仍在 `package.json` 中。
-
-> 当前实际生效的 AI 路径是 `src/engine/remote/*` → 后端 KataGo。任何「在浏览器端加载/推理模型」的实现方向都不符合当前架构。
+> 任何「在浏览器端加载/推理模型」的实现方向都不符合当前架构。
 
 ## 10. 关键约定
 
@@ -201,7 +196,7 @@ AI 走子/分析 ──▶ engine/remote/* ──HTTP──▶ 后端 server/
 
 - 框架：vitest，`environment: 'node'`，`include: ['test/**/*.test.ts']`。
 - IndexedDB 相关测试顶部 `import 'fake-indexeddb/auto'`，并在 `beforeEach` 重置 `indexedDB = new IDBFactory()`。
-- 覆盖范围（前端）：core（`rules` / `scoring` / `board` / `board-edge` / `board-layout` / `sgf`）、store（`game` / `replay` / `db` / `game-io`）、remote（`remote-service-client`），以及遗留引擎路径（`ai-player` / `mcts` / `net` / `weights` / `model-loader` / `analysis-*` 等）。
+- 覆盖范围（前端）：core（`rules` / `scoring` / `board` / `board-edge` / `board-layout` / `sgf`）、store（`game` / `replay` / `db` / `game-io`）、remote（`remote-service-client`）。
 - 前端测试从 `../src/...` 导入（**不带**后缀）。
 - 改动核心逻辑请同步补充/更新单测，并跑 `npm test` 与 `npm run build`。
 

@@ -36,8 +36,7 @@
 | 目录 | 职责 |
 | --- | --- |
 | `src/core/` | 与渲染无关的围棋核心:棋盘、规则、计分、Zobrist 哈希、SGF 解析/序列化 |
-| `src/engine/remote/` | **当前使用的 AI 路径**:`service-client`(HTTP 封装)、`remote-ai-player`、`remote-analysis`、`protocol`(共享类型) |
-| `src/engine/`(其余) | **遗留的本地 TF.js 推理路径**:特征编码、KataGoNet、权重解析、MCTS、AI 玩家、分析引擎/Worker/客户端 |
+| `src/engine/remote/` | **AI 路径**:`service-client`(HTTP 封装)、`remote-ai-player`、`remote-analysis`、`protocol`(共享类型) |
 | `src/store/` | 应用状态:对局状态机(`game`)、棋谱回放(`replay`)、IndexedDB 棋谱库(`db`)、SGF 导入导出(`game-io`) |
 | `src/ui/` | Canvas 棋盘渲染器(`board-renderer`) |
 | `src/main.ts` | 前端入口:构建 DOM、绑定事件、驱动对弈/回放/分析/服务面板 |
@@ -124,7 +123,7 @@
 
 ## 8. 前端要点
 
-> 完整前端架构(分层、数据流、core/store/remote/ui 详解、遗留路径)见 [`architecture/frontend.md`](architecture/frontend.md)。
+> 完整前端架构(分层、数据流、core/store/remote/ui 详解)见 [`architecture/frontend.md`](architecture/frontend.md)。
 
 - **无框架**:`src/main.ts` 用模板字符串一次性写入 `#app`,再通过 `querySelector` + 事件监听驱动。新增 UI 沿用该风格,不要引入框架。
 - AI 走 `ServiceClient`(`src/engine/remote/service-client.ts`),`baseUrl` 默认空(开发经 Vite 代理,生产同源)。
@@ -136,7 +135,7 @@
 - 框架:vitest,`environment: 'node'`,`include: ['test/**/*.test.ts']`(见 `vite.config.ts`)。
 - IndexedDB 相关测试顶部 `import 'fake-indexeddb/auto'`,并在 `beforeEach` 重置 `indexedDB = new IDBFactory()`。
 - 后端测试从 `../server/...ts` 导入(带 `.ts` 后缀);前端测试从 `../src/...` 导入(不带后缀)。
-- 覆盖范围:core(rules/scoring/board/sgf/zobrist)、store(game/replay/db/game-io)、server(config/坐标/协议/进程/管理/服务客户端)、以及遗留引擎路径(ai-player/mcts/net/weights/model-loader 等)。
+- 覆盖范围:core(rules/scoring/board/sgf/zobrist)、store(game/replay/db/game-io)、server(config/坐标/协议/进程/管理/服务客户端)。
 - 改动核心逻辑请同步补充/更新对应单测,并跑 `npm test` 与 `npm run build`。
 
 ## 10. 代码约定
@@ -150,10 +149,7 @@
 
 ## 11. 注意事项 / 常见坑
 
-1. **存在两条 AI 路径,只有一条在用**。当前实际使用的是 `src/engine/remote/*` → 后端 KataGo。
-   而 `src/engine/{features,net,weights,mcts,ai-player,backend,analysis-engine,analysis-worker,analysis-client,model-loader}.ts`
-   是**遗留的本地 TF.js 推理路径**:`main.ts` 仅从中取了两个常量(`PASS` 来自 `mcts`、`VARIATION_DEPTH` 来自 `analysis-engine`),
-   其余不再接线,但**仍有单测覆盖并需继续通过**。除非任务明确要求,不要扩展或删除它们。
+1. **只有一条 AI 路径**:`src/engine/remote/*` → 后端 KataGo。早期本地 TF.js 推理代码已移除,不得再新增「在浏览器端加载/推理模型」的实现。
 2. **不要假设浏览器端会加载模型**:任何「在客户端推理」的实现方向都不符合当前架构。
 3. **坐标转换只在后端做**;前端一律用索引 `pos`,乱转坐标会导致前后端不一致。
 4. `dist/` 是构建产物、`ai.config.json` 与 `models/` 已 gitignore;不要提交本地配置与模型。

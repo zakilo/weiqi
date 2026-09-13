@@ -6,7 +6,7 @@
 
 export const BOARD_SIZE = 19;
 export const BOARD_AREA = BOARD_SIZE * BOARD_SIZE;
-/** 虚着索引(与 src/engine/mcts.ts 的 PASS 数值一致) */
+/** 虚着索引(与前端 src/core/board.ts 的 PASS 数值一致) */
 export const PASS = BOARD_AREA;
 
 /** 列标签(跳过字母 I),与 src/ui/board-renderer.ts 一致 */

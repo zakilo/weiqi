@@ -1,14 +1,12 @@
 import './styles.css';
-import { BLACK, colOf, idx, rowOf, Stone, WHITE } from './core/board';
+import { BLACK, colOf, idx, PASS, rowOf, Stone, WHITE } from './core/board';
 import { BoardRenderer, COLUMN_LABELS } from './ui/board-renderer';
 import { Game } from './store/game';
 import { exportGameSgf, exportLineSgf, parseSgfToLine } from './store/game-io';
 import { SgfLineMove } from './core/sgf';
 import { deleteGame, getGame, listGames, saveGame } from './store/db';
 import { Replay } from './store/replay';
-import { VARIATION_DEPTH } from './engine/analysis-engine';
 import { KOMI_AREA } from './core/scoring';
-import { PASS } from './engine/mcts';
 import { ServiceClient } from './engine/remote/service-client';
 import { RemoteAiPlayer, remoteLevelOf } from './engine/remote/remote-ai-player';
 import { RemoteAnalysisClient, type RemoteAnalysisState } from './engine/remote/remote-analysis';
@@ -109,6 +107,9 @@ let autoplayTimer: ReturnType<typeof setInterval> | null = null;
 let vsMode: 'human' | 'ai-white' | 'ai-black' = 'human';
 const serviceClient = new ServiceClient();
 const aiPlayer = new RemoteAiPlayer(serviceClient);
+
+/** 点击候选项展开的变化线步数 */
+const VARIATION_DEPTH = 15;
 
 /** 回放分析:远端服务客户端与展示状态 */
 const analysisClient = new RemoteAnalysisClient(serviceClient);

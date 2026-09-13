@@ -1,6 +1,10 @@
 /** 棋盘路数(本项目仅支持 19 路) */
 export const BOARD_SIZE = 19;
 
+/** 棋盘总点数;约定为虚着(pass)的索引 */
+export const BOARD_AREA = BOARD_SIZE * BOARD_SIZE;
+export const PASS = BOARD_AREA;
+
 export const EMPTY = 0;
 export const BLACK = 1;
 export const WHITE = 2;

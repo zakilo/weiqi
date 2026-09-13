@@ -34,14 +34,13 @@ Node 后端 (server/)  ── spawn ──▶  katago analysis(JSON 行协议,�
   **NDJSON 流**,每 `reportDuringSearchEvery` 回报一行快照,客户端断开即取消并释放槽位
 - **模块划分**:
   - `src/core/` — 棋盘、规则、计分、Zobrist、SGF 解析
-  - `src/engine/` — 特征编码、KataGoNet、权重解析、MCTS、AI 玩家、分析引擎/Worker/客户端
   - `src/engine/remote/` — **服务客户端**:`service-client`(HTTP 封装)、`remote-ai-player`、`remote-analysis`、`protocol`(共享类型)
   - `src/store/` — 对局、棋谱回放、IndexedDB
   - `src/ui/` — Canvas 棋盘渲染(含候选标记与变化线)
   - `server/` — **Node 后端**:`config`、`engine/*`(坐标、协议、KataGo 进程、实例、编排)、`api`/`http`/`static`/`index`
 
-> 说明:浏览器端 TF.js 推理代码(`src/engine/{net,weights,mcts,features,backend,analysis-engine,analysis-worker,analysis-client,ai-player,model-loader}.ts`)
-> 与 `src/core/*` 及其单测**保留**并继续通过测试,但 `main.ts` 已不再引用,后续可另行清理。
+> 说明:早期浏览器端 TF.js 本地推理代码已移除,AI 推理统一由 Node 后端通过 KataGo 提供;
+> `src/core/*` 仍被前端与单测使用。
 
 ## 前置要求:安装 KataGo
 

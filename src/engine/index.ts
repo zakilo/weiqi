@@ -1,4 +1,4 @@
 /**
- * engine — AI 引擎:Worker 宿主、MCTS、网络推理、模型加载
+ * engine — AI 引擎:远端服务路径(remote/)封装与共享协议
  */
 export {};
