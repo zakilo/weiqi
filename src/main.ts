@@ -8,7 +8,12 @@ import { deleteGame, getGame, listGames, saveGame } from './store/db';
 import { Replay } from './store/replay';
 import { KOMI_AREA } from './core/scoring';
 import { ServiceClient } from './engine/remote/service-client';
-import { RemoteAiPlayer, remoteLevelOf } from './engine/remote/remote-ai-player';
+import {
+  RemoteAiPlayer,
+  REMOTE_AI_DEFAULT_LEVEL_ID,
+  REMOTE_AI_LEVELS,
+  remoteLevelOf,
+} from './engine/remote/remote-ai-player';
 import { RemoteAnalysisClient, type RemoteAnalysisState } from './engine/remote/remote-analysis';
 import type {
   AnalyzeSnapshot,
@@ -18,6 +23,10 @@ import type {
 } from './engine/remote/protocol';
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
+
+const levelOptions = REMOTE_AI_LEVELS.map(
+  (l) => `<option value="${l.id}"${l.id === REMOTE_AI_DEFAULT_LEVEL_ID ? ' selected' : ''}>${l.label}</option>`,
+).join('');
 
 app.innerHTML = `
   <div class="shell">
@@ -40,9 +49,7 @@ app.innerHTML = `
         <option value="ai-black">人机·AI 执黑</option>
       </select>
       <select id="level-select" class="btn" title="AI 难度">
-        <option value="easy">入门</option>
-        <option value="normal" selected>进阶</option>
-        <option value="hard">高手</option>
+        ${levelOptions}
       </select>
       <button id="btn-pass" class="btn">虚着</button>
       <button id="btn-undo" class="btn">悔棋</button>

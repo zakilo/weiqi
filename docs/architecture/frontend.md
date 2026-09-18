@@ -137,9 +137,18 @@ AI 走子/分析 ──▶ engine/remote/* ──HTTP──▶ 后端 server/
 
 | id | 档位 | `maxVisits` | `maxTemperature` |
 | --- | --- | --- | --- |
-| `easy` | 入门 | 80 | 1 |
-| `normal` | 进阶 | 200 | 0.6 |
-| `hard` | 高手 | 500 | 0.2 |
+| `30k` | 30级 | 20 | 1 |
+| `25k` | 25级 | 30 | 0.9 |
+| `20k` | 20级 | 40 | 0.8 |
+| `15k` | 15级 | 60 | 0.7 |
+| `10k` | 10级 | 85 | 0.6 |
+| `5k` | 5级（默认） | 120 | 0.5 |
+| `1k` | 1级 | 170 | 0.4 |
+| `1d` | 业余1段 | 245 | 0.3 |
+| `3d` | 业余3段 | 350 | 0.25 |
+| `5d` | 业余5段 | 500 | 0.2 |
+
+- 默认档 `5k`（`REMOTE_AI_DEFAULT_LEVEL_ID`）：UI 初始选中，未知 id 回退到该档。
 
 - `RemoteAiPlayer`：对外形状 `isReady`、`backendLabel = '远端服务'`、`thinking`、`refresh()`（调 `health`）、`setReady()`。
 - `think(game, level)`：把 `game.getMoves()` 序列化为 `moves`，带 `komi = KOMI_AREA`，调 `client.think`；返回落子或 `{ kind:'pass' }`。

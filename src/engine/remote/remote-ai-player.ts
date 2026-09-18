@@ -1,7 +1,7 @@
 /**
  * RemoteAiPlayer:同 AiPlayer 的对外形状(isReady / backendLabel / thinking / think),
  * 但思考走远端服务。难度档位用 maxVisits / maxTemperature 表达(playouts 语义映射)。
- * 因不加载本地模型,入门..高手只调节访问次数与温度。
+ * 因不加载本地模型,30级..业余5段十档只调节访问次数与温度。
  */
 import { BLACK, colOf, PASS, rowOf } from '../../core/board';
 import { KOMI_AREA } from '../../core/scoring';
@@ -17,15 +17,28 @@ export interface RemoteAiLevel {
   maxTemperature: number;
 }
 
-/** 难度档位:访问次数与温度越高越弱(更随机) */
+/** 难度档位:访问次数越少、温度越高越弱(更随机);30级最弱,业余5段最强 */
 export const REMOTE_AI_LEVELS: RemoteAiLevel[] = [
-  { id: 'easy', label: '入门', maxVisits: 80, maxTemperature: 1 },
-  { id: 'normal', label: '进阶', maxVisits: 200, maxTemperature: 0.6 },
-  { id: 'hard', label: '高手', maxVisits: 500, maxTemperature: 0.2 },
+  { id: '30k', label: '30级', maxVisits: 20, maxTemperature: 1 },
+  { id: '25k', label: '25级', maxVisits: 30, maxTemperature: 0.9 },
+  { id: '20k', label: '20级', maxVisits: 40, maxTemperature: 0.8 },
+  { id: '15k', label: '15级', maxVisits: 60, maxTemperature: 0.7 },
+  { id: '10k', label: '10级', maxVisits: 85, maxTemperature: 0.6 },
+  { id: '5k', label: '5级', maxVisits: 120, maxTemperature: 0.5 },
+  { id: '1k', label: '1级', maxVisits: 170, maxTemperature: 0.4 },
+  { id: '1d', label: '业余1段', maxVisits: 245, maxTemperature: 0.3 },
+  { id: '3d', label: '业余3段', maxVisits: 350, maxTemperature: 0.25 },
+  { id: '5d', label: '业余5段', maxVisits: 500, maxTemperature: 0.2 },
 ];
 
+/** 默认档位:UI 初始选中,也是未知 id 的回退目标 */
+export const REMOTE_AI_DEFAULT_LEVEL_ID = '5k';
+
 export function remoteLevelOf(id: string): RemoteAiLevel {
-  return REMOTE_AI_LEVELS.find((l) => l.id === id) ?? REMOTE_AI_LEVELS[1]!;
+  return (
+    REMOTE_AI_LEVELS.find((l) => l.id === id) ??
+    REMOTE_AI_LEVELS.find((l) => l.id === REMOTE_AI_DEFAULT_LEVEL_ID)!
+  );
 }
 
 export type AiMove = { kind: 'play'; col: number; row: number } | { kind: 'pass' };
