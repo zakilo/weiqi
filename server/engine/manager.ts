@@ -6,7 +6,7 @@
  * createEngine 通过构造注入,便于单测使用假引擎。
  */
 import { spawn } from 'node:child_process';
-import { statSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import type {
   AnalyzeRequest,
   AnalyzeSnapshot,
@@ -18,7 +18,7 @@ import type {
   ThinkResult,
 } from '../../src/engine/remote/protocol.ts';
 import type { ModelConfig, ServerConfig } from '../config.ts';
-import { resolveModelPath } from '../config.ts';
+import { resolveHumanModelPath, resolveModelPath } from '../config.ts';
 import { createAnalysisConfig } from './analysis-config.ts';
 import { EngineInstance, type AnalyzeOptions, type RunRequestOptions } from './engine.ts';
 import { NodeKatagoProcess, type SpawnFn, type SpawnedProcess } from './katago-process.ts';
@@ -45,14 +45,18 @@ export interface ManagerDeps {
 function defaultCreateEngine(config: ServerConfig, model: ModelConfig): EngineLike {
   const spawnFn: SpawnFn = (command, args, options) =>
     spawn(command, args, options) as unknown as SpawnedProcess;
+  const humanModelPath = resolveHumanModelPath(config);
+  const humanModelExists = humanModelPath !== null && existsSync(humanModelPath);
   return new EngineInstance(model, {
     config,
+    humanModelPath: humanModelExists ? humanModelPath : null,
     createConfig: (maxVisits) => createAnalysisConfig(config, maxVisits),
     createProcess: (configPath) =>
       new NodeKatagoProcess({
         katagoPath: config.katagoPath,
         configPath,
         modelPath: resolveModelPath(config, model),
+        humanModelPath: humanModelExists ? humanModelPath : null,
         spawn: spawnFn,
       }),
   });
@@ -159,11 +163,17 @@ export class EngineManager {
       queued += engine.queuedCount;
       rejected += engine.rejectedCount;
     }
+    const humanModelPath = resolveHumanModelPath(this.config);
     return {
       engines,
       active: this.active,
       queue: { active, queued, rejected },
-      config: { katagoPath: this.config.katagoPath, modelDir: this.config.modelDir },
+      config: {
+        katagoPath: this.config.katagoPath,
+        modelDir: this.config.modelDir,
+        humanModelPath,
+        humanModelExists: humanModelPath !== null && existsSync(humanModelPath),
+      },
     };
   }
 

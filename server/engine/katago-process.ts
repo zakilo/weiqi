@@ -1,6 +1,6 @@
 /**
  * KataGo analysis 子进程封装:
- *  - spawn(katagoPath, ['analysis', '-config', cfg, '-model', model])
+ *  - spawn(katagoPath, ['analysis', '-config', cfg, '-model', model])(可选追加 -human-model)
  *  - stdin 写 JSON 行;stdout 按行分帧,按 id 匹配 pending Promise
  *  - isDuringSearch 的中间报文转发给 onReport,最终报文 resolve
  *  - stderr 收集为日志
@@ -54,6 +54,8 @@ export interface NodeKatagoProcessOptions {
   katagoPath: string;
   configPath: string;
   modelPath: string;
+  /** Human-SL 人类风格模型路径;设置后追加 -human-model 参数 */
+  humanModelPath?: string | null;
   spawn: SpawnFn;
   onLog?: (line: string) => void;
 }
@@ -89,11 +91,11 @@ export class NodeKatagoProcess implements KatagoProcessLike {
     if (this.child) return;
     this.stopping = false;
     this.stdoutBuf = '';
-    const child = this.options.spawn(
-      this.options.katagoPath,
-      ['analysis', '-config', this.options.configPath, '-model', this.options.modelPath],
-      { stdio: ['pipe', 'pipe', 'pipe'] },
-    );
+    const args = ['analysis', '-config', this.options.configPath, '-model', this.options.modelPath];
+    if (this.options.humanModelPath) args.push('-human-model', this.options.humanModelPath);
+    const child = this.options.spawn(this.options.katagoPath, args, {
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
     this.child = child;
     child.stdout?.on('data', (chunk) => this.onStdout(String(chunk)));
     child.stderr?.on('data', (chunk) => this.onStderr(String(chunk)));

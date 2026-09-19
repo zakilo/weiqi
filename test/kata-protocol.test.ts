@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   buildAnalysisQuery,
   parseAnalysis,
+  parseHumanThink,
   parseThink,
+  pickMoveByPolicy,
   pickMoveByTemperature,
   sanitizeKomi,
   toSnapshot,
@@ -50,6 +52,22 @@ describe('buildAnalysisQuery', () => {
     const q = buildAnalysisQuery(REQUEST, { maxVisits: 0, reportDuringSearchEvery: -1 });
     expect(q.maxVisits).toBeUndefined();
     expect(q.reportDuringSearchEvery).toBeUndefined();
+  });
+
+  it('includePolicy 与 overrideSettings 按需透传', () => {
+    const q = buildAnalysisQuery(REQUEST, {
+      maxVisits: 50,
+      includePolicy: true,
+      overrideSettings: { humanSLProfile: 'rank_5k', ignorePreRootHistory: false },
+    });
+    expect(q.includePolicy).toBe(true);
+    expect(q.overrideSettings).toEqual({ humanSLProfile: 'rank_5k', ignorePreRootHistory: false });
+  });
+
+  it('缺省不写 includePolicy/overrideSettings', () => {
+    const q = buildAnalysisQuery(REQUEST);
+    expect('includePolicy' in q).toBe(false);
+    expect('overrideSettings' in q).toBe(false);
   });
 });
 
@@ -148,6 +166,110 @@ describe('pickMoveByTemperature', () => {
       { pos: 2, visits: 0, winRate: 0, scoreLead: 0, prior: 0, pv: [] },
     ];
     expect(pickMoveByTemperature(zeros, 1, () => 0.9)).toBe(1);
+  });
+});
+
+describe('pickMoveByPolicy', () => {
+  /** 构造 362 长策略数组:指定落点权重,其余 -1(非法);末位为虚着位 */
+  function makePolicy(entries: [number, number][], pass = 0): number[] {
+    const policy = new Array<number>(362).fill(-1);
+    for (const [i, w] of entries) policy[i] = w;
+    policy[361] = pass;
+    return policy;
+  }
+
+  it('按权重比例采样,可复现', () => {
+    const policy = makePolicy([
+      [10, 3],
+      [20, 1],
+    ]);
+    expect(pickMoveByPolicy(policy, () => 0)).toBe(10);
+    expect(pickMoveByPolicy(policy, () => 0.74)).toBe(10);
+    expect(pickMoveByPolicy(policy, () => 0.76)).toBe(20);
+    expect(pickMoveByPolicy(policy, () => 0.999999)).toBe(20);
+  });
+
+  it('非法点(-1)、零权重与虚着位不参与采样', () => {
+    const onlyPass = makePolicy([], 1);
+    expect(pickMoveByPolicy(onlyPass, () => 0)).toBeNull();
+
+    const withPass = makePolicy([[7, 1]], 0.5);
+    expect(pickMoveByPolicy(withPass, () => 0.99)).toBe(7);
+  });
+
+  it('空策略或无有效权重返回 null', () => {
+    expect(pickMoveByPolicy(undefined)).toBeNull();
+    expect(pickMoveByPolicy([])).toBeNull();
+    expect(pickMoveByPolicy(makePolicy([]))).toBeNull();
+  });
+});
+
+describe('parseHumanThink', () => {
+  /** 策略:pos=100 权重 1,pos=200 权重 3 */
+  function policy(): number[] {
+    const arr = new Array<number>(362).fill(-1);
+    arr[100] = 1;
+    arr[200] = 3;
+    arr[361] = 0;
+    return arr;
+  }
+
+  it('搜索最佳(order:0)为虚着 → 虚着', () => {
+    const result = parseHumanThink(
+      {
+        moveInfos: [
+          { move: 'pass', visits: 30, order: 0 },
+          { move: 'D4', visits: 20, order: 1 },
+        ],
+        humanPolicy: policy(),
+        rootInfo: { winrate: 0.5, scoreLead: 0, visits: 50 },
+      },
+      () => 0.1,
+    );
+    expect(result.move).toBe(PASS);
+  });
+
+  it('非虚着时按 humanPolicy 比例采样并回填数值', () => {
+    const result = parseHumanThink(
+      {
+        moveInfos: [{ move: 'D4', visits: 30, winrate: 0.5, scoreLead: 1, order: 0 }],
+        humanPolicy: policy(),
+        rootInfo: { winrate: 0.55, scoreLead: 2, visits: 50 },
+      },
+      () => 0.5,
+    );
+    expect(result.move).toBe(200);
+    expect(result.visits).toBe(50);
+    // 采样点不在 moveInfos 中 → 回退根节点数值
+    expect(result.winRate).toBe(0.55);
+    expect(result.scoreLead).toBe(2);
+  });
+
+  it('humanPolicy 缺失或全非法时回退搜索最佳', () => {
+    const response: AnalysisResponse = {
+      moveInfos: [{ move: 'D4', visits: 30, winrate: 0.5, scoreLead: 1, order: 0 }],
+    };
+    expect(parseHumanThink(response, () => 0.5).move).toBe(idx(3, 15));
+
+    const allIllegal = new Array<number>(362).fill(-1);
+    expect(parseHumanThink({ ...response, humanPolicy: allIllegal }, () => 0.5).move).toBe(
+      idx(3, 15),
+    );
+  });
+
+  it('无 order 字段时以访问次数最多者为搜索最佳', () => {
+    const result = parseHumanThink(
+      {
+        moveInfos: [
+          { move: 'pass', visits: 30 },
+          { move: 'D4', visits: 5 },
+        ],
+        humanPolicy: policy(),
+        rootInfo: { visits: 35 },
+      },
+      () => 0.1,
+    );
+    expect(result.move).toBe(PASS);
   });
 });
 

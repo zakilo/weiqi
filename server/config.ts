@@ -25,6 +25,8 @@ export interface ServerConfig {
   models: ModelConfig[];
   /** 当前激活模型 id */
   activeModel: string | null;
+  /** Human-SL 人类风格模型文件(相对 modelDir 或绝对路径);null 表示禁用 */
+  humanModelFile: string | null;
   /** 贴目(仅 warmup 用;真实对局 komi 由客户端随请求携带 KOMI_AREA) */
   komi: number;
   /** 默认搜索访问次数上限 */
@@ -52,6 +54,7 @@ export const DEFAULT_CONFIG: ServerConfig = {
   modelDir: './models',
   models: [],
   activeModel: null,
+  humanModelFile: 'b18c384nbt-humanv0.bin.gz',
   komi: 3.5,
   maxVisitsDefault: 200,
   numAnalysisThreads: 4,
@@ -121,6 +124,12 @@ export function loadConfig(options: LoadConfigOptions = {}): ServerConfig {
     modelDir: typeof file.modelDir === 'string' ? file.modelDir : DEFAULT_CONFIG.modelDir,
     models: normalizeModels(file.models),
     activeModel: typeof file.activeModel === 'string' ? file.activeModel : DEFAULT_CONFIG.activeModel,
+    humanModelFile:
+      typeof file.humanModelFile === 'string'
+        ? file.humanModelFile
+        : file.humanModelFile === null
+          ? null
+          : DEFAULT_CONFIG.humanModelFile,
     komi: toNumber(file.komi, DEFAULT_CONFIG.komi),
     maxVisitsDefault: toNumber(file.maxVisitsDefault, DEFAULT_CONFIG.maxVisitsDefault),
     numAnalysisThreads: toNumber(file.numAnalysisThreads, DEFAULT_CONFIG.numAnalysisThreads),
@@ -139,6 +148,10 @@ export function loadConfig(options: LoadConfigOptions = {}): ServerConfig {
   if (env.KATAGO_MODEL_DIR) merged.modelDir = env.KATAGO_MODEL_DIR;
   if (env.AI_PORT) merged.port = toNumber(env.AI_PORT, merged.port);
   if (env.AI_ACTIVE_MODEL) merged.activeModel = env.AI_ACTIVE_MODEL;
+  // 空字符串表示禁用 human 模型
+  if (env.AI_HUMAN_MODEL !== undefined) {
+    merged.humanModelFile = env.AI_HUMAN_MODEL === '' ? null : env.AI_HUMAN_MODEL;
+  }
 
   // 相对路径基于项目根解析
   merged.modelDir = isAbsolute(merged.modelDir) ? merged.modelDir : resolve(rootDir, merged.modelDir);
@@ -149,4 +162,11 @@ export function loadConfig(options: LoadConfigOptions = {}): ServerConfig {
 /** 模型文件绝对路径 */
 export function resolveModelPath(config: ServerConfig, model: ModelConfig): string {
   return isAbsolute(model.file) ? model.file : resolve(config.modelDir, model.file);
+}
+
+/** Human-SL 人类风格模型绝对路径;未配置返回 null */
+export function resolveHumanModelPath(config: ServerConfig): string | null {
+  const file = config.humanModelFile;
+  if (typeof file !== 'string' || file.length === 0) return null;
+  return isAbsolute(file) ? file : resolve(config.modelDir, file);
 }

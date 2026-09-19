@@ -25,10 +25,12 @@ export interface AiMoveRequest {
 
 /** 让 AI 思考一步 */
 export interface ThinkRequest extends AiMoveRequest {
-  /** 搜索访问次数上限(= 难度档位 playouts) */
+  /** 搜索访问次数上限(= 难度档位 playouts;humanSL 模式下由服务端固定) */
   maxVisits?: number;
-  /** 根着法采样温度:0 取最优,越大越随机 */
+  /** 根着法采样温度:0 取最优,越大越随机;humanSL 模式下不使用 */
   maxTemperature?: number;
+  /** Human-SL 人类风格档位(如 "rank_5k");服务端加载 human 模型时按人类策略采样 */
+  humanSLProfile?: string;
 }
 
 /** 持续分析一个局面 */
@@ -125,6 +127,10 @@ export interface ServiceStatus {
   config: {
     katagoPath: string;
     modelDir: string;
+    /** Human-SL 人类风格模型绝对路径(null 表示未配置) */
+    humanModelPath: string | null;
+    /** Human-SL 模型文件是否存在 */
+    humanModelExists: boolean;
   };
 }
 

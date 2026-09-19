@@ -74,6 +74,7 @@ function makeConfig(overrides: Partial<ServerConfig> = {}): ServerConfig {
       { id: 'b', name: 'Model B', file: 'b.bin.gz' },
     ],
     activeModel: 'a',
+    humanModelFile: null,
     komi: 3.75,
     maxVisitsDefault: 200,
     numAnalysisThreads: 4,
@@ -188,7 +189,12 @@ describe('EngineManager 状态聚合', () => {
     expect(status.engines).toHaveLength(2);
     expect(status.active).toBe('a');
     expect(status.queue).toEqual({ active: 1, queued: 3, rejected: 3 });
-    expect(status.config).toEqual({ katagoPath: 'katago', modelDir: '/abs/models' });
+    expect(status.config).toEqual({
+      katagoPath: 'katago',
+      modelDir: '/abs/models',
+      humanModelPath: null,
+      humanModelExists: false,
+    });
   });
 
   it('health 以激活实例是否运行判定 ok', async () => {

@@ -3,6 +3,7 @@
  *  - buildAnalysisQuery:把内部请求转为 analysis 查询(不含 id,id 由进程分配)。
  *  - parseAnalysis:把响应解析为内部候选结构(按访问次数降序)。
  *  - pickMoveByTemperature:按访问次数做温度采样选点。
+ *  - pickMoveByPolicy / parseHumanThink:humanSL 官方配方的策略采样选点。
  */
 import type {
   AiMoveRequest,
@@ -10,7 +11,7 @@ import type {
   CandidateWire,
   ThinkResult,
 } from '../../src/engine/remote/protocol.ts';
-import { BOARD_SIZE, PASS, kataGoToPos, posToKataGo } from './coords.ts';
+import { BOARD_AREA, BOARD_SIZE, PASS, kataGoToPos, posToKataGo } from './coords.ts';
 
 /** KataGo analysis 查询(不含 id) */
 export interface AnalysisQuery {
@@ -21,6 +22,10 @@ export interface AnalysisQuery {
   boardYSize: number;
   maxVisits?: number;
   reportDuringSearchEvery?: number;
+  /** 返回神经网络原始策略(policy/humanPolicy,humanSL 采样必需) */
+  includePolicy?: boolean;
+  /** 覆盖单条查询的配置(如 humanSLProfile / ignorePreRootHistory) */
+  overrideSettings?: Record<string, unknown>;
 }
 
 /** KataGo 响应中的单个候选 */
@@ -47,11 +52,17 @@ export interface AnalysisResponse {
     scoreLead?: number;
     visits?: number;
   };
+  /** includePolicy 时的根级策略:下标即棋盘索引(末位为虚着),-1 表示非法 */
+  policy?: number[];
+  /** humanSLProfile 下的根级人类策略(格式同 policy) */
+  humanPolicy?: number[];
 }
 
 export interface BuildQueryOptions {
   maxVisits?: number;
   reportDuringSearchEvery?: number;
+  includePolicy?: boolean;
+  overrideSettings?: Record<string, unknown>;
 }
 
 /**
@@ -84,6 +95,8 @@ export function buildAnalysisQuery(
   if (typeof options.reportDuringSearchEvery === 'number' && options.reportDuringSearchEvery > 0) {
     query.reportDuringSearchEvery = Math.floor(options.reportDuringSearchEvery);
   }
+  if (options.includePolicy) query.includePolicy = true;
+  if (options.overrideSettings) query.overrideSettings = options.overrideSettings;
   return query;
 }
 
@@ -173,6 +186,73 @@ export function parseThink(
 ): ThinkResult {
   const parsed = parseAnalysis(response);
   const move = pickMoveByTemperature(parsed.candidates, temperature, rng);
+  const chosen = parsed.candidates.find((c) => c.pos === move);
+  return {
+    move,
+    winRate: chosen ? chosen.winRate : parsed.rootWinrate,
+    scoreLead: chosen ? chosen.scoreLead : parsed.rootScoreLead,
+    visits: parsed.visits,
+  };
+}
+
+/**
+ * 从根级策略数组按比例采样着法(humanSL 官方配方)。
+ * 下标即棋盘索引,末位为虚着位(不参与采样,虚着与否由搜索最佳着法决定);
+ * -1 表示非法点,<=0 不参与。无有效权重返回 null。
+ */
+export function pickMoveByPolicy(
+  policy: readonly number[] | undefined,
+  rng: () => number = Math.random,
+): number | null {
+  if (!Array.isArray(policy) || policy.length === 0) return null;
+  const area = Math.min(policy.length - 1, BOARD_AREA);
+  let total = 0;
+  for (let i = 0; i < area; i++) {
+    const w = policy[i]!;
+    if (w > 0) total += w;
+  }
+  if (!(total > 0)) return null;
+  let r = rng() * total;
+  let last: number | null = null;
+  for (let i = 0; i < area; i++) {
+    const w = policy[i]!;
+    if (w <= 0) continue;
+    last = i;
+    r -= w;
+    if (r <= 0) return i;
+  }
+  return last;
+}
+
+/** moveInfos 中 order 最小的着法(搜索认定最佳);无有效项返回 null */
+function orderZeroMove(response: AnalysisResponse): number | null {
+  let bestOrder = Number.POSITIVE_INFINITY;
+  let best: number | null = null;
+  for (const info of response.moveInfos ?? []) {
+    const pos = kataGoToPos(info.move);
+    if (pos === null) continue;
+    const order = Number.isFinite(info.order) ? (info.order as number) : Number.POSITIVE_INFINITY;
+    if (order < bestOrder) {
+      bestOrder = order;
+      best = pos;
+    }
+  }
+  return best;
+}
+
+/**
+ * 解析 humanSL 思考结果(官方配方):
+ *  - 搜索最佳着法(order=0)为虚着 → 虚着;
+ *  - 否则在 humanPolicy 上按比例采样(策略缺失时回退搜索最佳)。
+ */
+export function parseHumanThink(
+  response: AnalysisResponse,
+  rng: () => number = Math.random,
+): ThinkResult {
+  const parsed = parseAnalysis(response);
+  const searchBest = orderZeroMove(response) ?? parsed.bestMove;
+  const move =
+    searchBest === PASS ? PASS : (pickMoveByPolicy(response.humanPolicy, rng) ?? searchBest);
   const chosen = parsed.candidates.find((c) => c.pos === move);
   return {
     move,

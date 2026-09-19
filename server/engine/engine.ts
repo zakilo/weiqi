@@ -10,7 +10,7 @@ import type { AnalyzeRequest, AnalyzeSnapshot, ThinkRequest, ThinkResult } from 
 import type { ModelConfig, ServerConfig } from '../config.ts';
 import type { TempConfig } from './analysis-config.ts';
 import type { AnalysisQuery, AnalysisResponse } from './protocol.ts';
-import { buildAnalysisQuery, parseThink, sanitizeKomi, toSnapshot } from './protocol.ts';
+import { buildAnalysisQuery, parseHumanThink, parseThink, sanitizeKomi, toSnapshot } from './protocol.ts';
 import type { KatagoProcessLike } from './katago-process.ts';
 
 /** 排队已满时抛出,API 层映射为 HTTP 429 */
@@ -21,8 +21,13 @@ export class QueueFullError extends Error {
   }
 }
 
+/** humanSL 配方用于虚着判定的搜索访问次数(官方建议 >50) */
+export const HUMAN_SL_VISITS = 50;
+
 export interface EngineDeps {
   config: ServerConfig;
+  /** Human-SL 人类风格模型路径;缺省时 humanSLProfile 请求回退普通搜索 */
+  humanModelPath?: string | null;
   createConfig: (maxVisits: number) => TempConfig;
   createProcess: (configPath: string) => KatagoProcessLike;
 }
@@ -132,14 +137,20 @@ export class EngineInstance {
     this.tempConfig = null;
   }
 
-  /** 让 AI 思考一步(内部做温度采样) */
+  /** 让 AI 思考一步(内部做采样;humanSLProfile 且有 human 模型时走人类策略采样) */
   async think(request: ThinkRequest, options: RunRequestOptions = {}): Promise<ThinkResult> {
+    const profile = request.humanSLProfile;
+    const useHuman = typeof profile === 'string' && profile.length > 0 && !!this.deps.humanModelPath;
     const query = buildAnalysisQuery(request, {
-      maxVisits: request.maxVisits ?? this.deps.config.maxVisitsDefault,
+      maxVisits: useHuman ? HUMAN_SL_VISITS : (request.maxVisits ?? this.deps.config.maxVisitsDefault),
       reportDuringSearchEvery: this.deps.config.reportDuringSearchEvery,
+      includePolicy: useHuman,
+      overrideSettings: useHuman
+        ? { humanSLProfile: profile, ignorePreRootHistory: false }
+        : undefined,
     });
     const response = await this.run(query, options);
-    return parseThink(response, request.maxTemperature ?? 0);
+    return useHuman ? parseHumanThink(response) : parseThink(response, request.maxTemperature ?? 0);
   }
 
   /** 持续分析一个局面:中间报文转为快照经 onSnapshot 回调 */

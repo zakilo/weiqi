@@ -35,7 +35,7 @@ interface Harness {
   child: () => FakeChild;
 }
 
-function makeHarness(): Harness {
+function makeHarness(humanModelPath?: string): Harness {
   const spawnCalls: Harness['spawnCalls'] = [];
   let child!: FakeChild;
   const spawn: SpawnFn = (command, args, options) => {
@@ -47,6 +47,7 @@ function makeHarness(): Harness {
     katagoPath: 'katago',
     configPath: '/cfg/analysis.cfg',
     modelPath: '/models/m.bin.gz',
+    humanModelPath,
     spawn,
   });
   return { proc, spawnCalls, child: () => child };
@@ -76,6 +77,20 @@ describe('NodeKatagoProcess', () => {
     });
     expect(h.proc.running).toBe(true);
     expect(h.proc.pid).toBe(4321);
+  });
+
+  it('配置 humanModelPath 时追加 -human-model 参数', () => {
+    const h = makeHarness('/models/human.bin.gz');
+    h.proc.start();
+    expect(h.spawnCalls[0]!.args).toEqual([
+      'analysis',
+      '-config',
+      '/cfg/analysis.cfg',
+      '-model',
+      '/models/m.bin.gz',
+      '-human-model',
+      '/models/human.bin.gz',
+    ]);
   });
 
   it('按 id 匹配乱序响应', async () => {
