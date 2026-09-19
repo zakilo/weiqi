@@ -744,10 +744,14 @@ function renderServicePanel(): void {
     return;
   }
 
-  const { katagoPath, modelDir } = serviceStatus.config;
+  const { katagoPath, modelDir, humanModelPath, humanModelExists } = serviceStatus.config;
+  // Human-SL 人类风格模型:缺失时 AI 对局自动回退普通搜索档位(visits/温度)
+  const humanLabel = humanModelExists ? '已加载' : humanModelPath ? '文件缺失,回退普通搜索' : '未配置';
+  const humanTitle = humanModelPath ?? '未配置(AI_HUMAN_MODEL / ai.config.json humanModelFile)';
   servicePathsEl.innerHTML =
     `<span title="${escapeHtml(katagoPath)}">KataGo:${escapeHtml(katagoPath)}</span>` +
-    `<span title="${escapeHtml(modelDir)}">模型目录:${escapeHtml(modelDir)}</span>`;
+    `<span title="${escapeHtml(modelDir)}">模型目录:${escapeHtml(modelDir)}</span>` +
+    `<span title="${escapeHtml(humanTitle)}"${humanModelExists ? '' : ' class="svc-warn"'}>Human-SL:${humanLabel}</span>`;
 
   if (serviceModelList.length === 0) {
     const li = document.createElement('li');

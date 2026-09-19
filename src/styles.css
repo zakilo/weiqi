@@ -235,6 +235,10 @@ body {
   white-space: nowrap;
 }
 
+.service-paths .svc-warn {
+  color: #c0392b;
+}
+
 .service-models {
   list-style: none;
   display: flex;
