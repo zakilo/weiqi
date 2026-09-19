@@ -2,6 +2,7 @@
   "katagoPath": "/usr/local/bin/katago",
   "modelDir": "./models",
   "activeModel": "b18c384nbt",
+  "humanModelFile": "b18c384nbt-humanv0.bin.gz",
   "komi": 3.5,
   "port": 8080,
   "host": "0.0.0.0",

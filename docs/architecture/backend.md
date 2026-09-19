@@ -97,6 +97,7 @@ index.ts
 | `modelDir` | `'./models'` | 权重目录（相对路径基于项目根解析） |
 | `models` | `[]` | `{ id, name, file }[]` 模型清单 |
 | `activeModel` | `null` | 默认激活模型 id（缺省取 `models[0]`） |
+| `humanModelFile` | `'b18c384nbt-humanv0.bin.gz'` | Human-SL 人类风格模型（相对 `modelDir` 或绝对路径；`null` 禁用） |
 | `komi` | `3.5` | 贴目（沿用 `KOMI_AREA`，KataGo 合法半整数） |
 | `maxVisitsDefault` | `200` | 默认访问量上限 |
 | `numAnalysisThreads` | `4` | KataGo 并行分析查询数 |
@@ -111,8 +112,9 @@ index.ts
 
 - `ROOT_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..')`（即 `server/` 的上一级，项目根）。
 - **优先级：环境变量 > `ai.config.json` > 内置默认值**。配置文件默认取项目根 `ai.config.json`，可用 `AI_CONFIG` 指定路径。
-- 环境变量覆盖：`KATAGO_PATH`、`KATAGO_MODEL_DIR`、`AI_PORT`、`AI_ACTIVE_MODEL`（另有 `AI_CONFIG`）。
+- 环境变量覆盖：`KATAGO_PATH`、`KATAGO_MODEL_DIR`、`AI_PORT`、`AI_ACTIVE_MODEL`、`AI_HUMAN_MODEL`（空字符串禁用；另有 `AI_CONFIG`）。
 - `resolveModelPath(config, model)`：`model.file` 为绝对路径则直接用，否则 `resolve(config.modelDir, model.file)`。
+- `resolveHumanModelPath(config)`：同上；未配置（`null`/空）返回 `null`。仅当文件存在（`existsSync`）时才向引擎注入，作为启动 `-human-model` 与 Human-SL 采样开关。
 
 ## 6. HTTP 层（`http.ts` / `api.ts` / `static.ts`）
 
@@ -126,7 +128,7 @@ index.ts
 | --- | --- | --- |
 | `GET` | `/api/health` | `{ ok, katagoPath, katagoVersion, activeModel }` |
 | `GET` | `/api/models` | `{ models:[{id,name,path,sizeBytes}], active }` |
-| `GET` | `/api/status` | `{ engines, active, queue:{active,queued,rejected}, config:{katagoPath,modelDir} }` |
+| `GET` | `/api/status` | `{ engines, active, queue:{active,queued,rejected}, config:{katagoPath,modelDir,humanModelPath,humanModelExists} }` |
 | `POST` | `/api/models/:id/load` | 加载模型（启动实例 + warmup 确认就绪） |
 | `POST` | `/api/models/:id/unload` | 卸载模型（停止进程、释放资源） |
 | `POST` | `/api/models/:id/activate` | 设为默认激活模型，并 `ensure()` 加载 |
@@ -153,7 +155,7 @@ index.ts
 ### 7.1 `EngineManager`（`manager.ts`）
 
 - `EngineLike` 接口约定实例能力：`modelConfig / isRunning / inFlightCount / queuedCount / rejectedCount / start / stop / status / think / analyze`。
-- `defaultCreateEngine(config, model)` 注入依赖构造实例：`spawnFn`、`createConfig`（`createAnalysisConfig`）、`createProcess`（`NodeKatagoProcess`）。
+- `defaultCreateEngine(config, model)` 注入依赖构造实例：`spawnFn`、`createConfig`（`createAnalysisConfig`）、`createProcess`（`NodeKatagoProcess`），并在 human 模型文件存在时注入 `humanModelPath`（传给实例与进程）。
 - 内部 `engines: Map<id, EngineLike>`；`active = config.activeModel ?? config.models[0]?.id ?? null`。
 - `resolveModelId(requestModel) => requestModel ?? this.active`（均无则抛错）；`think` / `analyze` 据此路由到实例。
 - `status()` 聚合各实例的 `inFlight / queued / rejected` 为全局 `queue`；`health(katagoVersion)` 以激活引擎的 `isRunning` 判定 `ok`。
@@ -168,7 +170,7 @@ index.ts
 - **`run(query)` 限流**：当在途数达到 `maxInFlightPerEngine` 时，若 `queue.length >= maxQueuePerEngine` 则 `rejected++` 并抛 `QueueFullError`，否则入队。
 - **`execute()`**：`inFlight++` → `proc.run(...)`（支持 `signal` 中止与 `onReport` 回调）→ `finally` 中 `inFlight--`、`refreshBusyState()`、`drain()`。
 - **`drain()`**：FIFO 取出队列任务并执行，直至达到并发上限。
-- `think()`：`buildAnalysisQuery` + `parseThink(response, maxTemperature ?? 0)`。
+- `think()`：普通路径 `buildAnalysisQuery` + `parseThink(response, maxTemperature ?? 0)`；请求带 `humanSLProfile` 且实例注入了 `humanModelPath` 时走 Human-SL 路径——固定 `HUMAN_SL_VISITS = 50`、`includePolicy: true`、`overrideSettings: { humanSLProfile, ignorePreRootHistory: false }`，由 `parseHumanThink` 采样（搜索最佳 order:0 为虚着则虚着，否则按 `humanPolicy` 比例采样）。
 - `analyze()`：中间报文经 `onReport` 转成快照回调，结束后再补发一次**最终快照**。
 - `status()`：`{ modelId, modelName, state, pid, inFlight, queued, rejected, totalRequests, startedAt, lastError }`。
 
@@ -177,7 +179,7 @@ index.ts
 ### 7.3 KataGo 子进程（`katago-process.ts`）
 
 - 接口：`SpawnedProcess` / `SpawnFn`（依赖注入点）/ `KatagoProcessLike`（`pid / running / start / run / stop`）。
-- `start()`：`spawn(katagoPath, ['analysis', '-config', configPath, '-model', modelPath], { stdio: ['pipe','pipe','pipe'] })`，并监听 `stdout / stderr / error / exit`。
+- `start()`：`spawn(katagoPath, ['analysis', '-config', configPath, '-model', modelPath])`，配置了 `humanModelPath` 时追加 `-human-model <path>`；`stdio` 全 `pipe`，并监听 `stdout / stderr / error / exit`。
 - `run(query, options)`：`id = 'q' + nextId++`；向 stdin 写 `JSON.stringify({ id, ...query }) + '\n'`；`pending: Map<id, { resolve, reject, onReport, timer }>`。
 - `handleLine`：`JSON.parse` 后，若 `isDuringSearch` 则回调 `onReport`（中间报文），否则删除 pending、清 timer 并 `resolve`。
 - `onExit`：非主动 `stopping` 时 `failAll(new Error('KataGo 进程已退出(...)'))`。
@@ -194,12 +196,13 @@ index.ts
 
 ### 8.2 协议纯函数（`protocol.ts`）
 
-类型：`AnalysisQuery { moves: [string,string][], rules, komi, boardXSize, boardYSize, maxVisits?, reportDuringSearchEvery? }`；`AnalysisResponse { id?, isDuringSearch?, turnNumber?, moveInfos?, rootInfo? }`。
+类型：`AnalysisQuery { moves: [string,string][], rules, komi, boardXSize, boardYSize, maxVisits?, reportDuringSearchEvery?, includePolicy?, overrideSettings? }`；`AnalysisResponse { id?, isDuringSearch?, turnNumber?, moveInfos?, rootInfo?, policy?, humanPolicy? }`（`policy`/`humanPolicy` 为 362 长数组，下标即棋盘索引、末位为虚着、`-1` 非法）。
 
 - `buildAnalysisQuery(request, options)`：`moves.map(m => [m.stone, posToKataGo(m.pos ?? PASS)])`；可选字段仅在 `> 0` 时写入（向下取整）。
 - `parseAnalysis(response)`：候选按 `visits` 降序；`bestMove` 取首位，否则 `PASS`。
 - `pickMoveByTemperature(candidates, temperature, rng)`：权重 `visits^(1/T)`，`T <= 0` 取最优。
 - `parseThink(response, temperature, rng)` → `{ move, winRate, scoreLead, visits }`。
+- `pickMoveByPolicy(policy, rng)` / `parseHumanThink(response, rng)`：Human-SL 配方采样（见 7.2）；策略缺失或全非法时回退搜索最佳。
 - `toSnapshot(response)` → `{ playouts, rootValue, bestMove, candidates }`。
 
 ### 8.3 临时分析配置（`analysis-config.ts`）
@@ -246,7 +249,7 @@ starting ──▶ ready ⇄ busy ──▶ error
 ## 11. 测试
 
 - 框架：**vitest**，`environment: 'node'`，`include: ['test/**/*.test.ts']`（见 `vite.config.ts`）。
-- 后端相关用例：`test/kata-coords.test.ts`（坐标双向/边界/`pass`）、`test/kata-protocol.test.ts`（查询构造与解析、think 取最优）、`test/kata-process.test.ts`（假 `spawn` 验证分帧与按 `id` 匹配、进程退出/错误）、`test/engine-manager.test.ts`（假引擎验证加载/卸载/切换、状态聚合、限流与 429）、`test/server-config.test.ts`（env 覆盖与默认值合并）、`test/remote-service-client.test.ts`（假 `fetch` + NDJSON 流与取消）。
+- 后端相关用例：`test/kata-coords.test.ts`（坐标双向/边界/`pass`）、`test/kata-protocol.test.ts`（查询构造与解析、think 取最优、humanPolicy 采样）、`test/kata-process.test.ts`（假 `spawn` 验证分帧与按 `id` 匹配、进程退出/错误）、`test/engine-manager.test.ts`（假引擎验证加载/卸载/切换、状态聚合、限流与 429）、`test/server-config.test.ts`（env 覆盖与默认值合并）、`test/remote-service-client.test.ts`（假 `fetch` + NDJSON 流与取消）。
 - 后端测试从 `../server/...ts` 导入（**带 `.ts` 后缀**）。
 - 改动核心逻辑请同步补充/更新单测，并跑 `npm test` 与 `npm run build`。
 

@@ -133,25 +133,37 @@ AI 走子/分析 ──▶ engine/remote/* ──HTTP──▶ 后端 server/
 
 ### 7.3 远端 AI 玩家 `remote-ai-player.ts`
 
-- `REMOTE_AI_LEVELS` 难度档位：
+- `REMOTE_AI_LEVELS` 难度档位（20级~业余1段共 21 档；`profile` 对应 KataGo Human-SL 档位，`maxVisits`/`maxTemperature` 仅为 human 模型缺失时的回退参数）：
 
-| id | 档位 | `maxVisits` | `maxTemperature` |
-| --- | --- | --- | --- |
-| `30k` | 30级 | 20 | 1 |
-| `25k` | 25级 | 30 | 0.9 |
-| `20k` | 20级 | 40 | 0.8 |
-| `15k` | 15级 | 60 | 0.7 |
-| `10k` | 10级 | 85 | 0.6 |
-| `5k` | 5级（默认） | 120 | 0.5 |
-| `1k` | 1级 | 170 | 0.4 |
-| `1d` | 业余1段 | 245 | 0.3 |
-| `3d` | 业余3段 | 350 | 0.25 |
-| `5d` | 业余5段 | 500 | 0.2 |
+| id | 档位 | `profile` | 回退 `maxVisits` | 回退 `maxTemperature` |
+| --- | --- | --- | --- | --- |
+| `20k` | 20级 | `rank_20k` | 20 | 1 |
+| `19k` | 19级 | `rank_19k` | 23 | 0.96 |
+| `18k` | 18级 | `rank_18k` | 28 | 0.92 |
+| `17k` | 17级 | `rank_17k` | 32 | 0.88 |
+| `16k` | 16级 | `rank_16k` | 38 | 0.84 |
+| `15k` | 15级 | `rank_15k` | 45 | 0.8 |
+| `14k` | 14级 | `rank_14k` | 53 | 0.76 |
+| `13k` | 13级 | `rank_13k` | 62 | 0.72 |
+| `12k` | 12级 | `rank_12k` | 72 | 0.68 |
+| `11k` | 11级 | `rank_11k` | 85 | 0.64 |
+| `10k` | 10级 | `rank_10k` | 100 | 0.6 |
+| `9k` | 9级 | `rank_9k` | 117 | 0.56 |
+| `8k` | 8级 | `rank_8k` | 138 | 0.52 |
+| `7k` | 7级 | `rank_7k` | 162 | 0.48 |
+| `6k` | 6级 | `rank_6k` | 190 | 0.44 |
+| `5k` | 5级（默认） | `rank_5k` | 224 | 0.4 |
+| `4k` | 4级 | `rank_4k` | 263 | 0.36 |
+| `3k` | 3级 | `rank_3k` | 308 | 0.32 |
+| `2k` | 2级 | `rank_2k` | 362 | 0.28 |
+| `1k` | 1级 | `rank_1k` | 426 | 0.24 |
+| `1d` | 业余1段 | `rank_1d` | 500 | 0.2 |
 
 - 默认档 `5k`（`REMOTE_AI_DEFAULT_LEVEL_ID`）：UI 初始选中，未知 id 回退到该档。
+- 服务端加载 human 模型时按 `profile` 走人类策略采样（50 visits 虚着判定 + `humanPolicy` 比例采样）；未加载时忽略 `profile`，按回退 `maxVisits`/`maxTemperature` 采样。
 
 - `RemoteAiPlayer`：对外形状 `isReady`、`backendLabel = '远端服务'`、`thinking`、`refresh()`（调 `health`）、`setReady()`。
-- `think(game, level)`：把 `game.getMoves()` 序列化为 `moves`，带 `komi = KOMI_AREA`，调 `client.think`；返回落子或 `{ kind:'pass' }`。
+- `think(game, level)`：把 `game.getMoves()` 序列化为 `moves`，带 `komi = KOMI_AREA` 与 `humanSLProfile = level.profile`（附回退 `maxVisits`/`maxTemperature`），调 `client.think`；返回落子或 `{ kind:'pass' }`。
 
 ### 7.4 远端分析 `remote-analysis.ts`
 

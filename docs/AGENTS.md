@@ -74,31 +74,45 @@
 - 落子合法性 `checkLegality` 返回 `'ok' | 'occupied' | 'suicide' | 'ko'`;打劫检测基于 Zobrist 哈希(传入上一手落子**前**的局面哈希)。
 - 双方连续虚着终局,自动按 `KOMI_AREA` 结算。
 
-### 4.4 难度档位(远端语义)
+### 4.4 难度档位(Human-SL 人类风格)
 
-`src/engine/remote/remote-ai-player.ts` 中难度用 `maxVisits` / `maxTemperature` 表达,访问次数越少、温度越高越弱:
+`src/engine/remote/remote-ai-player.ts` 中 20级~业余1段共 21 档,每档对应 KataGo **Human-SL** 档位 `profile`:
 
-| id | 档位 | maxVisits | maxTemperature |
-| --- | --- | --- | --- |
-| `30k` | 30级 | 20 | 1 |
-| `25k` | 25级 | 30 | 0.9 |
-| `20k` | 20级 | 40 | 0.8 |
-| `15k` | 15级 | 60 | 0.7 |
-| `10k` | 10级 | 85 | 0.6 |
-| `5k` | 5级(默认) | 120 | 0.5 |
-| `1k` | 1级 | 170 | 0.4 |
-| `1d` | 业余1段 | 245 | 0.3 |
-| `3d` | 业余3段 | 350 | 0.25 |
-| `5d` | 业余5段 | 500 | 0.2 |
+| id | 档位 | profile | 回退 maxVisits | 回退 maxTemperature |
+| --- | --- | --- | --- | --- |
+| `20k` | 20级 | `rank_20k` | 20 | 1 |
+| `19k` | 19级 | `rank_19k` | 23 | 0.96 |
+| `18k` | 18级 | `rank_18k` | 28 | 0.92 |
+| `17k` | 17级 | `rank_17k` | 32 | 0.88 |
+| `16k` | 16级 | `rank_16k` | 38 | 0.84 |
+| `15k` | 15级 | `rank_15k` | 45 | 0.8 |
+| `14k` | 14级 | `rank_14k` | 53 | 0.76 |
+| `13k` | 13级 | `rank_13k` | 62 | 0.72 |
+| `12k` | 12级 | `rank_12k` | 72 | 0.68 |
+| `11k` | 11级 | `rank_11k` | 85 | 0.64 |
+| `10k` | 10级 | `rank_10k` | 100 | 0.6 |
+| `9k` | 9级 | `rank_9k` | 117 | 0.56 |
+| `8k` | 8级 | `rank_8k` | 138 | 0.52 |
+| `7k` | 7级 | `rank_7k` | 162 | 0.48 |
+| `6k` | 6级 | `rank_6k` | 190 | 0.44 |
+| `5k` | 5级(默认) | `rank_5k` | 224 | 0.4 |
+| `4k` | 4级 | `rank_4k` | 263 | 0.36 |
+| `3k` | 3级 | `rank_3k` | 308 | 0.32 |
+| `2k` | 2级 | `rank_2k` | 362 | 0.28 |
+| `1k` | 1级 | `rank_1k` | 426 | 0.24 |
+| `1d` | 业余1段 | `rank_1d` | 500 | 0.2 |
 
-默认档为 `5k`(`REMOTE_AI_DEFAULT_LEVEL_ID`):UI 初始选中,未知 id 也回退到该档。
+- `think` 请求携带 `humanSLProfile`;服务端**加载了 human 模型**(`humanModelFile` 文件存在)时,按官方配方走人类策略采样:固定 50 visits + `includePolicy`,若搜索最佳着法(order:0)是虚着则虚着,否则按根级 `humanPolicy` 比例采样(排除虚着位)。
+- human 模型缺失时忽略 profile,自动回退上表的 `maxVisits` / `maxTemperature`(访问次数越少、温度越高越弱);档位下限止于 `rank_20k`(KataGo profile 范围 `rank_20k`~`rank_9d`)。
+- 默认档为 `5k`(`REMOTE_AI_DEFAULT_LEVEL_ID`):UI 初始选中,未知 id 也回退到该档。
 
 ## 5. 配置
 
 - 优先级:**环境变量 > `ai.config.json` > 内置默认值**(`server/config.ts` 的 `DEFAULT_CONFIG`)。
 - 配置文件默认读取项目根 `ai.config.json`(已 gitignore),可用 `AI_CONFIG` 指定路径;模板见 [`ai.config.example.json`](../ai.config.example.json)。
-- 支持的环境变量覆盖:`KATAGO_PATH`、`KATAGO_MODEL_DIR`、`AI_PORT`、`AI_ACTIVE_MODEL`、`AI_CONFIG`。
+- 支持的环境变量覆盖:`KATAGO_PATH`、`KATAGO_MODEL_DIR`、`AI_PORT`、`AI_ACTIVE_MODEL`、`AI_HUMAN_MODEL`(空字符串禁用 human 模型)、`AI_CONFIG`。
 - 相对路径(`modelDir` 等)基于**项目根**解析(`ROOT_DIR` = `server/` 的上一级)。
+- `humanModelFile`:Human-SL 人类风格模型(相对 `modelDir` 或绝对路径,默认 `b18c384nbt-humanv0.bin.gz`;`null` 禁用);文件存在时进程追加 `-human-model` 参数,否则 AI 对局回退普通搜索档位。
 - 关键运行参数:`maxVisitsDefault`、`numAnalysisThreads`、`numSearchThreads`、`nnMaxBatchSize`、`reportDuringSearchEvery`、`analysisPVLen` 会写入临时 KataGo analysis 配置;`maxInFlightPerEngine` / `maxQueuePerEngine` / `queueTimeoutMs` / `requestTimeoutMs` 控制并发与限流。
 - 未安装 KataGo 或未配置模型时,服务仍会启动,AI 功能以「未就绪」降级,本地功能(双人/SGF/回放)不受影响。
 

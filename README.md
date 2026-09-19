@@ -16,12 +16,13 @@ Node 后端 (server/)  ── spawn ──▶  katago analysis(JSON 行协议,�
 ## 功能
 
 - **19×19 对弈**:完整围棋规则——气、提子、打劫、禁着点、双方虚着终局,默认中国规则数子(贴 3.75 子)
-- **人机对弈**:AI 执黑 / AI 执白 / 双人三种模式,30级 至 业余5段 共十档难度(经本机 AI 服务推理)
+- **人机对弈**:AI 执黑 / AI 执白 / 双人三种模式,20级 至 业余1段 共 21 档难度(经本机 AI 服务推理;
+  加载 Human-SL 人类风格模型后按对应段位的**人类棋风**采样,未加载则回退访问量/温度近似)
 - **棋谱库**:对局保存为 SGF、SGF 导入导出,棋谱存储在浏览器 IndexedDB
 - **棋谱回放**:逐步 / 跳转 / 自动播放,可从棋谱任一手"继续对弈"
 - **回放 AI 分析**:回放暂停时自动分析当前局面,展示候选着法(胜率 + 访问量);
   点击候选可查看 15 步变化线(半透明棋子 + 步序编号)
-- **AI 服务管理**:查看服务连接状态、KataGo 路径与模型目录、模型列表与当前激活项、
+- **AI 服务管理**:查看服务连接状态、KataGo 路径与模型目录、Human-SL 模型状态、模型列表与当前激活项、
   每个运行实例状态(state / pid / 在途 / 排队 / 请求数 / 最近错误),并支持**加载 / 卸载 / 设为默认**
 
 ## 技术架构
@@ -44,14 +45,18 @@ Node 后端 (server/)  ── spawn ──▶  katago analysis(JSON 行协议,�
 
 ## 前置要求:安装 KataGo
 
-服务需要本机可执行的 KataGo(官方 C++ 版),以及至少一个模型权重文件。
+服务需要本机可执行的 KataGo(官方 C++ 版),以及至少一个模型权重文件;Human-SL 人类风格模型为推荐可选项。
 
 1. 安装 KataGo:从 [KataGo releases](https://github.com/lightvector/KataGo/releases) 下载对应平台的可执行文件,
    放到 PATH 中(如 `katago`),或记住其绝对路径。
 2. 下载模型权重(如 `kata1-b18c384nbt-s9996604416-d4316597426.bin.gz`),
    来源:[KataGo 训练网络](https://media.katagotraining.org/uploaded/networks/models/kata1/)
    或 releases 页面附件。将权重放入 `modelDir`(默认 `./models`)。
-3. 准备配置:复制 `ai.config.example.json` 为 `ai.config.json`,填写 `katagoPath`、`modelDir` 与 `models`。
+3. (推荐)下载 **Human-SL 人类风格模型** `b18c384nbt-humanv0.bin.gz`,来源:
+   [katagotraining 附加网络](https://katagotraining.org/extra_networks/)(KataGo v1.15.0 起支持;
+   直链 `https://media.katagotraining.org/uploaded/networks/models_extra/b18c384nbt-humanv0.bin.gz`),
+   同样放入 `modelDir`。加载后各档按对应段位的**人类棋风**行棋;文件缺失时自动回退访问量/温度近似。
+4. 准备配置:复制 `ai.config.example.json` 为 `ai.config.json`,填写 `katagoPath`、`modelDir` 与 `models`。
 
 > 若本机未安装 KataGo 或未配置模型,服务仍会正常启动,只是 AI 功能以「未就绪」降级(面板给出提示),
 > 双人 / SGF / 回放等本地功能不受影响。
@@ -65,6 +70,7 @@ Node 后端 (server/)  ── spawn ──▶  katago analysis(JSON 行协议,�
   "katagoPath": "/usr/local/bin/katago",
   "modelDir": "./models",
   "activeModel": "b18c384nbt",
+  "humanModelFile": "b18c384nbt-humanv0.bin.gz",
   "komi": 3.5,
   "port": 8080,
   "host": "0.0.0.0",
@@ -91,6 +97,7 @@ Node 后端 (server/)  ── spawn ──▶  katago analysis(JSON 行协议,�
 - `katagoPath` / `modelDir`:KataGo 可执行路径与模型目录(`modelDir` 相对路径基于项目根解析,`models[].file` 相对路径拼接到 `modelDir`)
 - `models[]`:`id`(唯一标识)、`name`(显示名,缺省取 id)、`file`(权重文件名或绝对路径)
 - `activeModel`:默认激活的模型 id(缺省为 `models[0]`)
+- `humanModelFile`:Human-SL 人类风格模型(相对 `modelDir` 或绝对路径;`null` 禁用)。默认 `b18c384nbt-humanv0.bin.gz`;文件不存在时自动回退普通搜索档位
 - `komi`:贴目,默认与前端计分常量 `KOMI_AREA = 3.5` 一致(取 KataGo 合法的半整数,仅用于 warmup;真实对局 komi 由客户端随请求携带)
 - `maxVisitsDefault` / `numAnalysisThreads` / `numSearchThreads` / `nnMaxBatchSize` / `reportDuringSearchEvery` / `analysisPVLen`:生成临时 KataGo analysis 配置时使用
 - `maxInFlightPerEngine` / `maxQueuePerEngine` / `queueTimeoutMs` / `requestTimeoutMs`:并发与限流参数(见下)
@@ -103,6 +110,7 @@ Node 后端 (server/)  ── spawn ──▶  katago analysis(JSON 行协议,�
 | `KATAGO_MODEL_DIR` | `modelDir` |
 | `AI_PORT` | `port` |
 | `AI_ACTIVE_MODEL` | `activeModel` |
+| `AI_HUMAN_MODEL` | `humanModelFile`(空字符串表示禁用) |
 | `AI_CONFIG` | 指定配置文件路径 |
 
 `ai.config.json` 已加入 `.gitignore`,本地配置不会提交;`ai.config.example.json` 为示例模板。
