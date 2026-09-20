@@ -203,7 +203,7 @@ index.ts
 - `pickMoveByTemperature(candidates, temperature, rng)`：权重 `visits^(1/T)`，`T <= 0` 取最优。
 - `parseThink(response, temperature, rng)` → `{ move, winRate, scoreLead, visits }`。
 - `pickMoveByPolicy(policy, rng)` / `parseHumanThink(response, rng)`：Human-SL 配方采样（见 7.2）；策略缺失或全非法时回退搜索最佳。
-- `toSnapshot(response)` → `{ playouts, rootValue, bestMove, candidates }`。
+- `toSnapshot(response)` → `{ playouts, rootValue, rootScoreLead, bestMove, candidates }`（`rootValue`/`rootScoreLead` 为行棋方视角）。
 
 ### 8.3 临时分析配置（`analysis-config.ts`）
 
@@ -236,7 +236,7 @@ starting ──▶ ready ⇄ busy ──▶ error
 | `queueTimeoutMs` | `60000` | 排队等待超时后失败 |
 | `requestTimeoutMs` | `120000` | 单次查询超时后失败 |
 
-- `analyze` 流会**长时间占用槽位**（持续到客户端断开）；期间对弈请求会排队。客户端离开回放或开始对弈时会主动取消分析流以释放槽位。
+- `analyze` 流会**长时间占用槽位**（持续到客户端断开）；期间对弈请求会排队。客户端离开回放或开始对弈时会主动取消分析流以释放槽位；对局中的形势判断复用 analyze 流，客户端在 AI 思考前取消、思考后重连，避免阻塞落子。
 
 ## 10. 依赖注入约定（测试友好，硬约定）
 

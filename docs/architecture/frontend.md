@@ -172,6 +172,13 @@ AI 走子/分析 ──▶ engine/remote/* ──HTTP──▶ 后端 server/
 - `analyze(state)`：先 `stop()` 再新建 `AbortController`（**新请求自动中止旧请求**）。
 - `stop()` / `dispose()` 中断；`callbacks { onSnapshot, onError? }`。
 
+### 7.5 形势判断（`eval.ts` + `main.ts`）
+
+- 纯函数 `eval.ts`：`blackEvalOf(snapshot, toMove)` 把行棋方视角的 `rootValue`/`rootScoreLead` 换算为黑方视角 `{ blackWinRate, blackLead }`（白方行棋取 `1 - rootValue`、`-rootScoreLead`）；`leadText(blackLead)` 生成“黑/白领先 X.X 子”，`|lead| < 1` 为“形势接近”。
+- 双分析流数据通路：回放沿用现有 `analysisClient`（渲染 `analysisSnapshot`，不额外发请求）；对局走独立实例 `evalClient`，`evalState()` 从 `game.getMoves()` 构造请求（不传 `maxVisits`，用服务端默认）。
+- 独立开关 `evalEnabled`（工具栏“形势”按钮）：对局中落子/虚着/悔棋/新对局/恢复对弈后触发 250ms 防抖评估；`evalFor` 记录快照对应的局面签名，与当前不符时显示“形势判断中…”（快照过期防护）；终局或关闭开关时 `stopEval()`。
+- 资源竞争：AI 思考前 `stopEval()` 取消评估流释放引擎槽位（`evalPaused` 标记，条上显示“· AI 思考中”），思考结束后 `scheduleEval()` 恢复；进入回放 `stopEval()`，改由回放分析流驱动。
+
 ## 8. ui 层与入口
 
 ### 8.1 Canvas 渲染器 `board-renderer.ts`
@@ -183,8 +190,8 @@ AI 走子/分析 ──▶ engine/remote/* ──HTTP──▶ 后端 server/
 
 ### 8.2 入口 `main.ts`
 
-- 用**模板字符串一次性写入** `#app.innerHTML`（顶部工具栏、回放控件、对弈模式/难度、`#board` canvas、侧栏棋谱库 / AI 分析面板 / AI 服务面板、消息与结果面板），随后 `querySelector` 取节点并绑定事件。
-- 关键状态：`mode: 'play' | 'replay'`、`replay: Replay | null`、`autoplayTimer`、`vsMode: 'human' | 'ai-white' | 'ai-black'`、`ghost`、`serviceClient / aiPlayer / analysisClient`、`analysisSnapshot / variationLine / analysisTimer / analysisBackend`、`serviceStatus / serviceModelList`。
+- 用**模板字符串一次性写入** `#app.innerHTML`（顶部工具栏、形势判断评估条、回放控件、对弈模式/难度、`#board` canvas、侧栏棋谱库 / AI 分析面板 / AI 服务面板、消息与结果面板），随后 `querySelector` 取节点并绑定事件。
+- 关键状态：`mode: 'play' | 'replay'`、`replay: Replay | null`、`autoplayTimer`、`vsMode: 'human' | 'ai-white' | 'ai-black'`、`ghost`、`serviceClient / aiPlayer / analysisClient`、`analysisSnapshot / variationLine / analysisTimer / analysisBackend`、`serviceStatus / serviceModelList`、`evalClient / evalEnabled / evalSnapshot / evalFor / evalTimer / evalPaused`。
 - 关键函数：
   - `isAiTurn()` / `humanStone()`：判定当前是否 AI 回合、人类执子色；
   - `coordText(col, row)`：坐标文本（如 `Q16`）；
@@ -193,6 +200,7 @@ AI 走子/分析 ──▶ engine/remote/* ──HTTP──▶ 后端 server/
   - `maybeAiMove()`：AI 思考并落子，`finally` 中递归调用以支持连续 AI 行棋；
   - `analysisState()`：把回放视角转成 `{ moves, komi: KOMI_AREA }`（从空盘起的完整手顺）；
   - `stopAnalysis()` / `scheduleAnalysis()`（250ms 防抖）/ `startAnalysis()`；
+  - `evalState()` / `renderEvalBar()` / `scheduleEval()`（250ms 防抖）/ `startEval()` / `stopEval()`：形势判断评估条（见 §7.5）；
   - `renderCandidateList()` / `renderVariationList()`：候选与变化线渲染（点击候选取 `pv.slice(0, VARIATION_DEPTH)`）；
   - `enterReplay()` / `renderLibrary()` / `openSavedGame()`：回放与棋谱库；
   - `refreshService()`（每 2s 轮询 `models` + `status`）/ `renderServicePanel()` / `serviceAction()`：AI 服务面板。
@@ -217,7 +225,7 @@ AI 走子/分析 ──▶ engine/remote/* ──HTTP──▶ 后端 server/
 
 - 框架：vitest，`environment: 'node'`，`include: ['test/**/*.test.ts']`。
 - IndexedDB 相关测试顶部 `import 'fake-indexeddb/auto'`，并在 `beforeEach` 重置 `indexedDB = new IDBFactory()`。
-- 覆盖范围（前端）：core（`rules` / `scoring` / `board` / `board-edge` / `board-layout` / `sgf`）、store（`game` / `replay` / `db` / `game-io`）、remote（`remote-service-client`）。
+- 覆盖范围（前端）：core（`rules` / `scoring` / `board` / `board-edge` / `board-layout` / `sgf`）、store（`game` / `replay` / `db` / `game-io`）、remote（`remote-service-client` / `remote-eval`）。
 - 前端测试从 `../src/...` 导入（**不带**后缀）。
 - 改动核心逻辑请同步补充/更新单测，并跑 `npm test` 与 `npm run build`。
 
