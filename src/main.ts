@@ -15,6 +15,7 @@ import {
   remoteLevelOf,
 } from './engine/remote/remote-ai-player';
 import { RemoteAnalysisClient, type RemoteAnalysisState } from './engine/remote/remote-analysis';
+import { blackEvalOf, leadText } from './engine/remote/eval';
 import type {
   AnalyzeSnapshot,
   EngineStatus,
@@ -53,8 +54,10 @@ app.innerHTML = `
       </select>
       <button id="btn-pass" class="btn">虚着</button>
       <button id="btn-undo" class="btn">悔棋</button>
+      <button id="btn-eval" class="btn" title="形势判断(实时评估)">形势</button>
       <button id="btn-restart" class="btn primary">新对局</button>
     </div>
+    <div id="eval-bar" class="eval-bar hidden"></div>
     <div class="layout">
       <div class="board-wrap">
         <canvas id="board"></canvas>
@@ -129,6 +132,18 @@ const analysisPanel = document.querySelector<HTMLDivElement>('#analysis-panel')!
 const analysisStatusEl = document.querySelector<HTMLSpanElement>('#analysis-status')!;
 const candidateListEl = document.querySelector<HTMLUListElement>('#candidate-list')!;
 const variationListEl = document.querySelector<HTMLDivElement>('#variation-list')!;
+
+/** 形势判断:对局中的实时评估流(回放模式复用 analysisSnapshot) */
+const evalClient = new RemoteAnalysisClient(serviceClient);
+let evalEnabled = false;
+let evalSnapshot: AnalyzeSnapshot | null = null;
+/** 评估快照对应的局面签名(手数 + 最后一手);与当前不一致时视为过期 */
+let evalFor: string | null = null;
+let evalTimer: ReturnType<typeof setTimeout> | null = null;
+/** AI 思考中:评估暂停,保留上次数值 */
+let evalPaused = false;
+const evalBarEl = document.querySelector<HTMLDivElement>('#eval-bar')!;
+const evalButtonEl = document.querySelector<HTMLButtonElement>('#btn-eval')!;
 /** 是否轮到 AI 行棋(且非回放模式) */
 function isAiTurn(): boolean {
   if (mode !== 'play' || game.isFinished) return false;
@@ -191,6 +206,7 @@ function refresh(): void {
     statusEl.textContent = '棋谱回放';
     resultPanel.classList.add('hidden');
     updateAutoplayButton();
+    renderEvalBar();
     return;
   }
 
@@ -209,10 +225,13 @@ function refresh(): void {
       <span>白:${r.whiteScore.toFixed(2)} 子(子 ${r.whiteStones} + 空 ${r.whiteTerritory} + 贴 ${KOMI_AREA})</span>
       <span class="winner">${r.margin >= 0 ? '黑胜' : '白胜'} ${Math.abs(r.margin).toFixed(2)} 子</span>
     `;
+    if (evalEnabled) stopEval(); // 终局:停流并清空评估(结果面板已有实际数子)
   } else {
     statusEl.textContent = `${stoneName(game.currentStone)}棋落子`;
     resultPanel.classList.add('hidden');
   }
+
+  renderEvalBar();
 }
 
 function stopAutoplay(): void {
@@ -238,6 +257,7 @@ function tryPlay(col: number, row: number): void {
       : '';
   }
   refresh();
+  if (evalEnabled) scheduleEval();
   void maybeAiMove();
 }
 
@@ -249,6 +269,9 @@ async function maybeAiMove(): Promise<void> {
     return;
   }
   const level = remoteLevelOf(levelSelect.value);
+  // AI 思考前停止评估流:释放引擎槽位,避免思考请求排队等待分析结束
+  evalPaused = true;
+  evalClient.stop();
   try {
     // 先刷新展示“AI 思考中…”(think 阻塞期间状态栏即时反馈)
     refresh();
@@ -268,7 +291,9 @@ async function maybeAiMove(): Promise<void> {
   } catch (e) {
     messageEl.textContent = `AI 思考失败:${String(e)}`;
   } finally {
+    evalPaused = false;
     refresh();
+    if (evalEnabled) scheduleEval(); // AI 落子后恢复评估(此时通常轮到我方)
     void maybeAiMove(); // 若 AI 连续行棋(或思考后仍轮到 AI)继续
   }
 }
@@ -378,6 +403,96 @@ candidateListEl.addEventListener('click', (e) => {
   refresh();
 });
 
+// ---- 形势判断(对局中的实时评估流) ----
+
+/** 当前对局局面的评估请求(从空盘起的完整手顺 + komi) */
+function evalState(): RemoteAnalysisState {
+  const moves = game.getMoves().map((m) => ({
+    stone: m.stone === BLACK ? ('B' as const) : ('W' as const),
+    pos: m.kind === 'play' ? m.pos : null,
+  }));
+  return { moves, komi: KOMI_AREA };
+}
+
+/** 停止对局评估流并清空快照(幂等) */
+function stopEval(): void {
+  if (evalTimer !== null) {
+    clearTimeout(evalTimer);
+    evalTimer = null;
+  }
+  evalClient.stop();
+  evalSnapshot = null;
+  evalFor = null;
+  evalPaused = false;
+}
+
+/** 当前对局局面的签名(手数 + 最后一手),用于判断评估快照是否过期 */
+function evalSignature(): string {
+  return `${game.moveCount}:${game.getLastPlayPos() ?? -1}`;
+}
+
+/** 延迟启动对局评估(连续落子防抖) */
+function scheduleEval(): void {
+  if (!evalEnabled || mode !== 'play' || game.isFinished) return;
+  if (evalTimer !== null) clearTimeout(evalTimer);
+  evalTimer = setTimeout(() => {
+    evalTimer = null;
+    void startEval();
+  }, 250);
+}
+
+/** 连接服务并评估当前对局局面 */
+async function startEval(): Promise<void> {
+  if (!evalEnabled || mode !== 'play' || game.isFinished || aiPlayer.thinking) return;
+  try {
+    await evalClient.ensure();
+  } catch {
+    evalBarEl.classList.remove('hidden');
+    evalBarEl.textContent = 'AI 服务不可用';
+    return;
+  }
+  // 期间状态可能已变化(切回放/终局/AI 开始思考),放弃本次
+  if (!evalEnabled || mode !== 'play' || game.isFinished || aiPlayer.thinking) return;
+  evalFor = evalSignature();
+  evalClient.analyze(evalState());
+}
+
+evalClient.callbacks.onSnapshot = (snap) => {
+  evalSnapshot = snap;
+  refresh();
+};
+evalClient.callbacks.onError = (message) => {
+  evalBarEl.classList.remove('hidden');
+  evalBarEl.textContent = `形势判断失败:${message}`;
+};
+
+/** 渲染评估条:对局读 evalSnapshot,回放读回放分析流 analysisSnapshot */
+function renderEvalBar(): void {
+  const inPlay = mode === 'play';
+  if (!evalEnabled || (inPlay && game.isFinished)) {
+    evalBarEl.classList.add('hidden');
+    return;
+  }
+  evalBarEl.classList.remove('hidden');
+  const snapshot = inPlay ? (evalFor === evalSignature() ? evalSnapshot : null) : analysisSnapshot;
+  let toMove: 'B' | 'W' | null = null;
+  if (inPlay) {
+    toMove = game.currentStone === BLACK ? 'B' : 'W';
+  } else if (replay) {
+    toMove = replay.nextStone() === BLACK ? 'B' : 'W';
+  }
+  const paused = inPlay && evalPaused ? ' · AI 思考中' : '';
+  if (!snapshot || toMove === null) {
+    evalBarEl.textContent = `形势判断中…${paused}`;
+    return;
+  }
+  const { blackWinRate, blackLead } = blackEvalOf(snapshot, toMove);
+  const percent = (blackWinRate * 100).toFixed(1);
+  evalBarEl.innerHTML =
+    `<div class="eval-track" title="黑胜率 ${percent}%"><span class="eval-black" style="width:${(blackWinRate * 100).toFixed(2)}%"></span></div>` +
+    `<span class="eval-text">黑 ${percent}% · ${leadText(blackLead)} · ${snapshot.playouts} 次推理${paused}</span>`;
+}
+
 // 点击落子(仅对弈模式)
 canvas.addEventListener('click', (e) => {
   if (mode !== 'play' || aiPlayer.thinking || isAiTurn()) return;
@@ -412,6 +527,7 @@ document.querySelector('#btn-pass')!.addEventListener('click', () => {
   game.pass();
   messageEl.textContent = game.isFinished ? '双方虚着,终局数子' : `${stoneName(passer)}虚着`;
   refresh();
+  if (evalEnabled) scheduleEval();
   void maybeAiMove();
 });
 
@@ -424,6 +540,16 @@ vsSelect.addEventListener('change', () => {
 });
 levelSelect.addEventListener('change', () => {
   messageEl.textContent = `AI 难度:${levelSelect.options[levelSelect.selectedIndex]?.text ?? ''}`;
+});
+
+// ---- 形势判断开关 ----
+evalButtonEl.addEventListener('click', () => {
+  evalEnabled = !evalEnabled;
+  evalButtonEl.classList.toggle('active', evalEnabled);
+  messageEl.textContent = `形势判断:${evalEnabled ? '开' : '关'}`;
+  if (!evalEnabled) stopEval();
+  refresh();
+  if (evalEnabled) scheduleEval(); // 回放模式无需请求(复用回放分析流)
 });
 
 // ---- 回放控制 ----
@@ -439,6 +565,7 @@ function enterReplay(line: readonly SgfLineMove[], truncated = false): void {
     messageEl.textContent = '进入回放模式,可逐步查看';
   }
   stopAnalysis();
+  stopEval(); // 对局评估停流;回放条改由 analysisSnapshot 驱动
   analysisPanel.classList.remove('hidden');
   refresh();
   scheduleAnalysis(); // 暂停态开始分析
@@ -499,6 +626,7 @@ document.querySelector('#btn-resume')!.addEventListener('click', () => {
   replay = null;
   messageEl.textContent = `已从第 ${resumePos} 手继续对弈`;
   refresh();
+  if (evalEnabled) scheduleEval();
 });
 
 // ---- 棋谱库(IndexedDB) ----
@@ -665,6 +793,7 @@ document.querySelector('#btn-undo')!.addEventListener('click', () => {
   }
   messageEl.textContent = `已悔棋(退回 ${steps} 手)`;
   refresh();
+  if (evalEnabled) scheduleEval();
   void maybeAiMove();
 });
 document.querySelector('#btn-restart')!.addEventListener('click', () => {
@@ -676,6 +805,7 @@ document.querySelector('#btn-restart')!.addEventListener('click', () => {
   game.restart();
   messageEl.textContent = '新对局开始';
   refresh();
+  if (evalEnabled) scheduleEval();
   void maybeAiMove();
 });
 

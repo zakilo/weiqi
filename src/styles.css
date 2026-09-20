@@ -95,6 +95,17 @@ body {
   background: #5d4c36;
 }
 
+/* 开关类按钮的激活态(如形势判断) */
+.btn.active {
+  background: #4a3b28;
+  border-color: #4a3b28;
+  color: #fff;
+}
+
+.btn.active:hover {
+  background: #5d4c36;
+}
+
 /* 棋盘 + 棋谱库侧栏 */
 .layout {
   display: flex;
@@ -409,6 +420,39 @@ body {
   padding: 2px 6px;
   border-radius: 4px;
   background: #f2e9d8;
+}
+
+/* 形势判断评估条 */
+.eval-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: min(94vw, 82vh + 264px);
+  padding: 6px 10px;
+  border: 1px solid #c9b998;
+  border-radius: 6px;
+  background: #fffdf7;
+  font-size: 13px;
+}
+
+.eval-track {
+  flex: 1;
+  height: 10px;
+  border-radius: 5px;
+  overflow: hidden;
+  background: #e9e2d2;
+  border: 1px solid #d8c8a8;
+}
+
+.eval-black {
+  display: block;
+  height: 100%;
+  background: #2b2620;
+}
+
+.eval-text {
+  white-space: nowrap;
+  color: #6b5636;
 }
 
 /* 提示与结果 */
