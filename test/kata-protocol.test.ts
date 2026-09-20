@@ -307,7 +307,17 @@ describe('toSnapshot', () => {
     });
     expect(snap.playouts).toBe(15);
     expect(snap.rootValue).toBe(0.6);
+    expect(snap.rootScoreLead).toBe(2);
     expect(snap.bestMove).toBe(idx(3, 15));
     expect(snap.candidates).toHaveLength(1);
+  });
+
+  it('缺少根信息 → 数值回退 0', () => {
+    const snap = toSnapshot({});
+    expect(snap.playouts).toBe(0);
+    expect(snap.rootValue).toBe(0);
+    expect(snap.rootScoreLead).toBe(0);
+    expect(snap.bestMove).toBe(PASS);
+    expect(snap.candidates).toHaveLength(0);
   });
 });

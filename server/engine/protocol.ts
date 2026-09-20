@@ -268,6 +268,7 @@ export function toSnapshot(response: AnalysisResponse): AnalyzeSnapshot {
   return {
     playouts: parsed.visits,
     rootValue: parsed.rootWinrate,
+    rootScoreLead: parsed.rootScoreLead,
     bestMove: parsed.bestMove,
     candidates: parsed.candidates,
   };

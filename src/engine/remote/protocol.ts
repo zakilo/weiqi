@@ -60,6 +60,8 @@ export interface AnalyzeSnapshot {
   playouts: number;
   /** 行棋方视角根胜率 */
   rootValue: number;
+  /** 行棋方视角根目差(与 rootValue 同视角,单位:子) */
+  rootScoreLead: number;
   /** 当前最佳着法 */
   bestMove: number;
   candidates: CandidateWire[];
