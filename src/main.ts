@@ -122,6 +122,9 @@ const aiPlayer = new RemoteAiPlayer(serviceClient);
 /** 点击候选项展开的变化线步数 */
 const VARIATION_DEPTH = 15;
 
+/** 盘面最多展示的候选点数(候选已按访问量降序,侧栏候选列表不受限) */
+const BOARD_CANDIDATE_LIMIT = 5;
+
 /** 回放分析:远端服务客户端与展示状态 */
 const analysisClient = new RemoteAnalysisClient(serviceClient);
 let analysisSnapshot: AnalyzeSnapshot | null = null;
@@ -179,11 +182,11 @@ const REASONS: Record<string, string> = {
   'game-over': '对局已结束',
 };
 
-/** 当前盘面叠加:回放=分析流候选+变化线;对局=提示开关下的评估候选(最佳手标记) */
+/** 当前盘面叠加(最多 BOARD_CANDIDATE_LIMIT 个候选):回放=分析流候选+变化线;对局=提示开关下的评估候选(最佳手标记) */
 function boardAnalysis(): RenderState['analysis'] {
   if (mode === 'replay' && replay) {
     return {
-      candidates: (analysisSnapshot?.candidates ?? []).map((c) => ({ pos: c.pos, winRate: c.winRate })),
+      candidates: (analysisSnapshot?.candidates ?? []).slice(0, BOARD_CANDIDATE_LIMIT).map((c) => ({ pos: c.pos, winRate: c.winRate })),
       ...(variationLine.length > 0
         ? {
             variation: {
@@ -198,7 +201,7 @@ function boardAnalysis(): RenderState['analysis'] {
   const snapshot = evalSnapshot;
   if (evalFor !== evalSignature() || !snapshot) return undefined;
   return {
-    candidates: snapshot.candidates.map((c) => ({
+    candidates: snapshot.candidates.slice(0, BOARD_CANDIDATE_LIMIT).map((c) => ({
       pos: c.pos,
       winRate: c.winRate,
       best: c.pos === snapshot.bestMove,
