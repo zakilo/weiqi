@@ -123,7 +123,7 @@ const aiPlayer = new RemoteAiPlayer(serviceClient);
 const VARIATION_DEPTH = 15;
 
 /** 盘面最多展示的候选点数(候选已按访问量降序,侧栏候选列表不受限) */
-const BOARD_CANDIDATE_LIMIT = 5;
+const BOARD_CANDIDATE_LIMIT = 10;
 
 /** 回放分析:远端服务客户端与展示状态 */
 const analysisClient = new RemoteAnalysisClient(serviceClient);
