@@ -172,26 +172,27 @@ AI 走子/分析 ──▶ engine/remote/* ──HTTP──▶ 后端 server/
 - `analyze(state)`：先 `stop()` 再新建 `AbortController`（**新请求自动中止旧请求**）。
 - `stop()` / `dispose()` 中断；`callbacks { onSnapshot, onError? }`。
 
-### 7.5 形势判断（`eval.ts` + `main.ts`）
+### 7.5 形势判断与 AI 提示（`eval.ts` + `main.ts`）
 
 - 纯函数 `eval.ts`：`blackEvalOf(snapshot, toMove)` 把行棋方视角的 `rootValue`/`rootScoreLead` 换算为黑方视角 `{ blackWinRate, blackLead }`（白方行棋取 `1 - rootValue`、`-rootScoreLead`）；`leadText(blackLead)` 生成“黑/白领先 X.X 子”，`|lead| < 1` 为“形势接近”。
 - 双分析流数据通路：回放沿用现有 `analysisClient`（渲染 `analysisSnapshot`，不额外发请求）；对局走独立实例 `evalClient`，`evalState()` 从 `game.getMoves()` 构造请求（不传 `maxVisits`，用服务端默认）。
-- 独立开关 `evalEnabled`（工具栏“形势”按钮）：对局中落子/虚着/悔棋/新对局/恢复对弈后触发 250ms 防抖评估；`evalFor` 记录快照对应的局面签名，与当前不符时显示“形势判断中…”（快照过期防护）；终局或关闭开关时 `stopEval()`。
-- 资源竞争：AI 思考前 `stopEval()` 取消评估流释放引擎槽位（`evalPaused` 标记，条上显示“· AI 思考中”），思考结束后 `scheduleEval()` 恢复；进入回放 `stopEval()`，改由回放分析流驱动。
+- 两个独立开关共享同一评估流与快照：`evalEnabled`（工具栏“形势”，顶部评估条）与 `hintEnabled`（工具栏“提示”，盘面候选圆标）；`evalWanted()` 为任一开启即需要流，仅当两者都关时才 `stopEval()`（避免重复请求与排队）。
+- 盘面叠加由 `boardAnalysis()` 统一构造：回放 = 分析流候选 + 变化线；对局 = 提示开关且快照未过期时的评估候选（`best` 标记最佳手为金色高亮）。`evalFor` 记录快照对应的局面签名，与当前不符时不显示（快照过期防护）。
+- 资源竞争：AI 思考前 `stopEval()` 取消评估流释放引擎槽位（`evalPaused` 标记，条上显示“· AI 思考中”、盘上候选隐藏），思考结束后 `scheduleEval()` 恢复；进入回放 `stopEval()` 改由回放分析流驱动，“提示”按钮在回放窗口期禁用；终局或两开关均关闭时停流。
 
 ## 8. ui 层与入口
 
 ### 8.1 Canvas 渲染器 `board-renderer.ts`
 
 - 常量：`STAR_POINTS`（9 个星位）、`COLUMN_LABELS = 'ABCDEFGHJKLMNOPQRST'`（跳过 `I`，与后端 `coords.ts` 一致）。
-- `RenderState { board, lastMove, ghost, analysis? }`；`analysis` 含 `candidates[{pos,winRate}]` 与可选 `variation{stone, moves[{pos,order}]}`。
+- `RenderState { board, lastMove, ghost, analysis? }`；`analysis` 含 `candidates[{pos,winRate,best?}]`（`best` 为金色高亮的最佳手）与可选 `variation{stone, moves[{pos,order}]}`。
 - `BoardRenderer`：`setState`（更新并重绘）、`resize()`（按 `devicePixelRatio` 适配高分屏，`cell = view / 20`）、`pointToPixel`（网格点 → 像素）、`pixelToPoint`（像素 → 最近网格点，过远返回 `null`）。
 - 绘制流程：木纹底色 → 网格线（外圈加粗）→ 星位 → 坐标标注 → 棋子 / 最后一手标记 / 悬停预览 → 分析叠加（候选胜率圆标 + 变化线半透明棋子与步序编号）。虚着（`pos >= 361`）不画在盘上。
 
 ### 8.2 入口 `main.ts`
 
 - 用**模板字符串一次性写入** `#app.innerHTML`（顶部工具栏、形势判断评估条、回放控件、对弈模式/难度、`#board` canvas、侧栏棋谱库 / AI 分析面板 / AI 服务面板、消息与结果面板），随后 `querySelector` 取节点并绑定事件。
-- 关键状态：`mode: 'play' | 'replay'`、`replay: Replay | null`、`autoplayTimer`、`vsMode: 'human' | 'ai-white' | 'ai-black'`、`ghost`、`serviceClient / aiPlayer / analysisClient`、`analysisSnapshot / variationLine / analysisTimer / analysisBackend`、`serviceStatus / serviceModelList`、`evalClient / evalEnabled / evalSnapshot / evalFor / evalTimer / evalPaused`。
+- 关键状态：`mode: 'play' | 'replay'`、`replay: Replay | null`、`autoplayTimer`、`vsMode: 'human' | 'ai-white' | 'ai-black'`、`ghost`、`serviceClient / aiPlayer / analysisClient`、`analysisSnapshot / variationLine / analysisTimer / analysisBackend`、`serviceStatus / serviceModelList`、`evalClient / evalEnabled / hintEnabled / evalSnapshot / evalFor / evalTimer / evalPaused`。
 - 关键函数：
   - `isAiTurn()` / `humanStone()`：判定当前是否 AI 回合、人类执子色；
   - `coordText(col, row)`：坐标文本（如 `Q16`）；
@@ -200,7 +201,8 @@ AI 走子/分析 ──▶ engine/remote/* ──HTTP──▶ 后端 server/
   - `maybeAiMove()`：AI 思考并落子，`finally` 中递归调用以支持连续 AI 行棋；
   - `analysisState()`：把回放视角转成 `{ moves, komi: KOMI_AREA }`（从空盘起的完整手顺）；
   - `stopAnalysis()` / `scheduleAnalysis()`（250ms 防抖）/ `startAnalysis()`；
-  - `evalState()` / `renderEvalBar()` / `scheduleEval()`（250ms 防抖）/ `startEval()` / `stopEval()`：形势判断评估条（见 §7.5）；
+  - `evalState()` / `renderEvalBar()` / `scheduleEval()`（250ms 防抖）/ `startEval()` / `stopEval()` / `evalWanted()`：对局评估流（形势判断评估条 + AI 提示候选点，见 §7.5）；
+  - `boardAnalysis()`：盘面分析叠加（回放候选+变化线；对局提示候选+最佳手标记）；
   - `renderCandidateList()` / `renderVariationList()`：候选与变化线渲染（点击候选取 `pv.slice(0, VARIATION_DEPTH)`）；
   - `enterReplay()` / `renderLibrary()` / `openSavedGame()`：回放与棋谱库；
   - `refreshService()`（每 2s 轮询 `models` + `status`）/ `renderServicePanel()` / `serviceAction()`：AI 服务面板。
