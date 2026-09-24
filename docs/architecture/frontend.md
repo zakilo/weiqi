@@ -177,7 +177,7 @@ AI 走子/分析 ──▶ engine/remote/* ──HTTP──▶ 后端 server/
 - 纯函数 `eval.ts`：`blackEvalOf(snapshot, toMove)` 把行棋方视角的 `rootValue`/`rootScoreLead` 换算为黑方视角 `{ blackWinRate, blackLead }`（白方行棋取 `1 - rootValue`、`-rootScoreLead`）；`leadText(blackLead)` 生成“黑/白领先 X.X 子”，`|lead| < 1` 为“形势接近”。
 - 双分析流数据通路：回放沿用现有 `analysisClient`（渲染 `analysisSnapshot`，不额外发请求）；对局走独立实例 `evalClient`，`evalState()` 从 `game.getMoves()` 构造请求（不传 `maxVisits`，用服务端默认）。
 - 两个独立开关共享同一评估流与快照：`evalEnabled`（工具栏“形势”，顶部评估条）与 `hintEnabled`（工具栏“提示”，盘面候选圆标）；`evalWanted()` 为任一开启即需要流，仅当两者都关时才 `stopEval()`（避免重复请求与排队）。
-- 盘面叠加由 `boardAnalysis()` 统一构造：回放 = 分析流候选 + 变化线；对局 = 提示开关且快照未过期时的评估候选（`best` 标记最佳手为金色高亮）。`evalFor` 记录快照对应的局面签名，与当前不符时不显示（快照过期防护）。
+- 盘面叠加由 `boardAnalysis()` 统一构造：回放 = 分析流候选 + 变化线；对局 = 提示开关且快照未过期时的评估候选（`best` 标记最佳手为金色高亮）。盘上最多展示 `BOARD_CANDIDATE_LIMIT`（=5）个候选（候选已按访问量降序，取前 N；回放侧栏候选列表不受限）。`evalFor` 记录快照对应的局面签名，与当前不符时不显示（快照过期防护）。
 - 资源竞争：AI 思考前 `stopEval()` 取消评估流释放引擎槽位（`evalPaused` 标记，条上显示“· AI 思考中”、盘上候选隐藏），思考结束后 `scheduleEval()` 恢复；进入回放 `stopEval()` 改由回放分析流驱动，“提示”按钮在回放窗口期禁用；终局或两开关均关闭时停流。
 
 ## 8. ui 层与入口
@@ -207,7 +207,7 @@ AI 走子/分析 ──▶ engine/remote/* ──HTTP──▶ 后端 server/
   - `enterReplay()` / `renderLibrary()` / `openSavedGame()`：回放与棋谱库；
   - `refreshService()`（每 2s 轮询 `models` + `status`）/ `renderServicePanel()` / `serviceAction()`：AI 服务面板。
 - `new ResizeObserver(() => board.resize()).observe(canvas)` 响应尺寸变化。
-- **常量来源**：`PASS`（`./core/board`）、`VARIATION_DEPTH`（`main.ts` 本地常量，值 15）。
+- **常量来源**：`PASS`（`./core/board`）、`VARIATION_DEPTH`（`main.ts` 本地常量，值 15）、`BOARD_CANDIDATE_LIMIT`（`main.ts` 本地常量，值 5，盘面候选圆标上限）。
 
 ## 9. AI 路径
 
