@@ -1,6 +1,6 @@
 import './styles.css';
 import { BLACK, colOf, idx, PASS, rowOf, Stone, WHITE } from './core/board';
-import { BoardRenderer, COLUMN_LABELS } from './ui/board-renderer';
+import { BoardRenderer, COLUMN_LABELS, type RenderState } from './ui/board-renderer';
 import { Game } from './store/game';
 import { exportGameSgf, exportLineSgf, parseSgfToLine } from './store/game-io';
 import { SgfLineMove } from './core/sgf';
@@ -55,6 +55,7 @@ app.innerHTML = `
       <button id="btn-pass" class="btn">虚着</button>
       <button id="btn-undo" class="btn">悔棋</button>
       <button id="btn-eval" class="btn" title="形势判断(实时评估)">形势</button>
+      <button id="btn-hint" class="btn" title="AI 提示(显示推荐候选点)">提示</button>
       <button id="btn-restart" class="btn primary">新对局</button>
     </div>
     <div id="eval-bar" class="eval-bar hidden"></div>
@@ -133,9 +134,11 @@ const analysisStatusEl = document.querySelector<HTMLSpanElement>('#analysis-stat
 const candidateListEl = document.querySelector<HTMLUListElement>('#candidate-list')!;
 const variationListEl = document.querySelector<HTMLDivElement>('#variation-list')!;
 
-/** 形势判断:对局中的实时评估流(回放模式复用 analysisSnapshot) */
+/** 对局评估流:形势判断评估条与 AI 提示候选点共享同一流与快照(回放模式复用 analysisSnapshot) */
 const evalClient = new RemoteAnalysisClient(serviceClient);
 let evalEnabled = false;
+/** AI 提示开关:在盘面显示推荐候选点 */
+let hintEnabled = false;
 let evalSnapshot: AnalyzeSnapshot | null = null;
 /** 评估快照对应的局面签名(手数 + 最后一手);与当前不一致时视为过期 */
 let evalFor: string | null = null;
@@ -144,6 +147,7 @@ let evalTimer: ReturnType<typeof setTimeout> | null = null;
 let evalPaused = false;
 const evalBarEl = document.querySelector<HTMLDivElement>('#eval-bar')!;
 const evalButtonEl = document.querySelector<HTMLButtonElement>('#btn-eval')!;
+const hintButtonEl = document.querySelector<HTMLButtonElement>('#btn-hint')!;
 /** 是否轮到 AI 行棋(且非回放模式) */
 function isAiTurn(): boolean {
   if (mode !== 'play' || game.isFinished) return false;
@@ -175,29 +179,43 @@ const REASONS: Record<string, string> = {
   'game-over': '对局已结束',
 };
 
+/** 当前盘面叠加:回放=分析流候选+变化线;对局=提示开关下的评估候选(最佳手标记) */
+function boardAnalysis(): RenderState['analysis'] {
+  if (mode === 'replay' && replay) {
+    return {
+      candidates: (analysisSnapshot?.candidates ?? []).map((c) => ({ pos: c.pos, winRate: c.winRate })),
+      ...(variationLine.length > 0
+        ? {
+            variation: {
+              stone: replay.nextStone(),
+              moves: variationLine.map((pos, i) => ({ pos, order: i + 1 })),
+            },
+          }
+        : {}),
+    };
+  }
+  if (!hintEnabled || game.isFinished || evalPaused) return undefined;
+  const snapshot = evalSnapshot;
+  if (evalFor !== evalSignature() || !snapshot) return undefined;
+  return {
+    candidates: snapshot.candidates.map((c) => ({
+      pos: c.pos,
+      winRate: c.winRate,
+      best: c.pos === snapshot.bestMove,
+    })),
+  };
+}
+
 function refresh(): void {
   const displayBoard = mode === 'replay' && replay ? replay.board() : game.getBoard();
   const lastMove = mode === 'replay' && replay ? replay.lastPlayPos() : game.getLastPlayPos();
-  const analysis =
-    mode === 'replay' && replay
-      ? {
-          candidates: (analysisSnapshot?.candidates ?? []).map((c) => ({ pos: c.pos, winRate: c.winRate })),
-          ...(variationLine.length > 0
-            ? {
-                variation: {
-                  stone: replay.nextStone(),
-                  moves: variationLine.map((pos, i) => ({ pos, order: i + 1 })),
-                },
-              }
-            : {}),
-        }
-      : undefined;
-  board.setState({ board: displayBoard, lastMove, ghost, analysis });
+  board.setState({ board: displayBoard, lastMove, ghost, analysis: boardAnalysis() });
 
   const replayControls = document.querySelector<HTMLDivElement>('#replay-controls')!;
   const playButtons = [
     document.querySelector<HTMLButtonElement>('#btn-pass')!,
     document.querySelector<HTMLButtonElement>('#btn-undo')!,
+    hintButtonEl, // AI 提示仅在窗口期可用(回放候选由回放分析流驱动)
   ];
   if (mode === 'replay' && replay) {
     replayControls.classList.remove('hidden');
@@ -225,7 +243,7 @@ function refresh(): void {
       <span>白:${r.whiteScore.toFixed(2)} 子(子 ${r.whiteStones} + 空 ${r.whiteTerritory} + 贴 ${KOMI_AREA})</span>
       <span class="winner">${r.margin >= 0 ? '黑胜' : '白胜'} ${Math.abs(r.margin).toFixed(2)} 子</span>
     `;
-    if (evalEnabled) stopEval(); // 终局:停流并清空评估(结果面板已有实际数子)
+    if (evalWanted()) stopEval(); // 终局:停流并清空展示(结果面板已有实际数子)
   } else {
     statusEl.textContent = `${stoneName(game.currentStone)}棋落子`;
     resultPanel.classList.add('hidden');
@@ -257,7 +275,7 @@ function tryPlay(col: number, row: number): void {
       : '';
   }
   refresh();
-  if (evalEnabled) scheduleEval();
+  if (evalWanted()) scheduleEval();
   void maybeAiMove();
 }
 
@@ -293,7 +311,7 @@ async function maybeAiMove(): Promise<void> {
   } finally {
     evalPaused = false;
     refresh();
-    if (evalEnabled) scheduleEval(); // AI 落子后恢复评估(此时通常轮到我方)
+    if (evalWanted()) scheduleEval(); // AI 落子后恢复评估(此时通常轮到我方)
     void maybeAiMove(); // 若 AI 连续行棋(或思考后仍轮到 AI)继续
   }
 }
@@ -403,7 +421,22 @@ candidateListEl.addEventListener('click', (e) => {
   refresh();
 });
 
-// ---- 形势判断(对局中的实时评估流) ----
+// ---- 对局评估流(形势判断评估条 + AI 提示候选点) ----
+
+/** 是否需要对局评估流(任一开关开启即需要;两开关共享同一流与快照) */
+function evalWanted(): boolean {
+  return evalEnabled || hintEnabled;
+}
+
+/** 评估错误反馈:评估条开启时写条内,否则提示到消息栏 */
+function evalError(message: string): void {
+  if (evalEnabled) {
+    evalBarEl.classList.remove('hidden');
+    evalBarEl.textContent = message;
+  } else {
+    messageEl.textContent = message;
+  }
+}
 
 /** 当前对局局面的评估请求(从空盘起的完整手顺 + komi) */
 function evalState(): RemoteAnalysisState {
@@ -433,7 +466,7 @@ function evalSignature(): string {
 
 /** 延迟启动对局评估(连续落子防抖) */
 function scheduleEval(): void {
-  if (!evalEnabled || mode !== 'play' || game.isFinished) return;
+  if (!evalWanted() || mode !== 'play' || game.isFinished) return;
   if (evalTimer !== null) clearTimeout(evalTimer);
   evalTimer = setTimeout(() => {
     evalTimer = null;
@@ -443,16 +476,15 @@ function scheduleEval(): void {
 
 /** 连接服务并评估当前对局局面 */
 async function startEval(): Promise<void> {
-  if (!evalEnabled || mode !== 'play' || game.isFinished || aiPlayer.thinking) return;
+  if (!evalWanted() || mode !== 'play' || game.isFinished || aiPlayer.thinking) return;
   try {
     await evalClient.ensure();
   } catch {
-    evalBarEl.classList.remove('hidden');
-    evalBarEl.textContent = 'AI 服务不可用';
+    evalError('AI 服务不可用');
     return;
   }
   // 期间状态可能已变化(切回放/终局/AI 开始思考),放弃本次
-  if (!evalEnabled || mode !== 'play' || game.isFinished || aiPlayer.thinking) return;
+  if (!evalWanted() || mode !== 'play' || game.isFinished || aiPlayer.thinking) return;
   evalFor = evalSignature();
   evalClient.analyze(evalState());
 }
@@ -462,8 +494,7 @@ evalClient.callbacks.onSnapshot = (snap) => {
   refresh();
 };
 evalClient.callbacks.onError = (message) => {
-  evalBarEl.classList.remove('hidden');
-  evalBarEl.textContent = `形势判断失败:${message}`;
+  evalError(`对局分析失败:${message}`);
 };
 
 /** 渲染评估条:对局读 evalSnapshot,回放读回放分析流 analysisSnapshot */
@@ -512,7 +543,7 @@ canvas.addEventListener('mousemove', (e) => {
   } else {
     ghost = null;
   }
-  board.setState({ board: game.getBoard(), lastMove: game.getLastPlayPos(), ghost });
+  board.setState({ board: game.getBoard(), lastMove: game.getLastPlayPos(), ghost, analysis: boardAnalysis() });
 });
 canvas.addEventListener('mouseleave', () => {
   if (mode !== 'play') return;
@@ -527,7 +558,7 @@ document.querySelector('#btn-pass')!.addEventListener('click', () => {
   game.pass();
   messageEl.textContent = game.isFinished ? '双方虚着,终局数子' : `${stoneName(passer)}虚着`;
   refresh();
-  if (evalEnabled) scheduleEval();
+  if (evalWanted()) scheduleEval();
   void maybeAiMove();
 });
 
@@ -542,14 +573,22 @@ levelSelect.addEventListener('change', () => {
   messageEl.textContent = `AI 难度:${levelSelect.options[levelSelect.selectedIndex]?.text ?? ''}`;
 });
 
-// ---- 形势判断开关 ----
+// ---- 形势判断 / AI 提示开关 ----
 evalButtonEl.addEventListener('click', () => {
   evalEnabled = !evalEnabled;
   evalButtonEl.classList.toggle('active', evalEnabled);
   messageEl.textContent = `形势判断:${evalEnabled ? '开' : '关'}`;
-  if (!evalEnabled) stopEval();
+  if (!evalWanted()) stopEval(); // 另一开关仍开启时保留评估流
   refresh();
-  if (evalEnabled) scheduleEval(); // 回放模式无需请求(复用回放分析流)
+  if (evalWanted()) scheduleEval(); // 回放模式无需请求(复用回放分析流)
+});
+hintButtonEl.addEventListener('click', () => {
+  hintEnabled = !hintEnabled;
+  hintButtonEl.classList.toggle('active', hintEnabled);
+  messageEl.textContent = `AI 提示:${hintEnabled ? '开' : '关'}`;
+  if (!evalWanted()) stopEval();
+  refresh();
+  if (evalWanted()) scheduleEval();
 });
 
 // ---- 回放控制 ----
@@ -626,7 +665,7 @@ document.querySelector('#btn-resume')!.addEventListener('click', () => {
   replay = null;
   messageEl.textContent = `已从第 ${resumePos} 手继续对弈`;
   refresh();
-  if (evalEnabled) scheduleEval();
+  if (evalWanted()) scheduleEval();
 });
 
 // ---- 棋谱库(IndexedDB) ----
@@ -793,7 +832,7 @@ document.querySelector('#btn-undo')!.addEventListener('click', () => {
   }
   messageEl.textContent = `已悔棋(退回 ${steps} 手)`;
   refresh();
-  if (evalEnabled) scheduleEval();
+  if (evalWanted()) scheduleEval();
   void maybeAiMove();
 });
 document.querySelector('#btn-restart')!.addEventListener('click', () => {
@@ -805,7 +844,7 @@ document.querySelector('#btn-restart')!.addEventListener('click', () => {
   game.restart();
   messageEl.textContent = '新对局开始';
   refresh();
-  if (evalEnabled) scheduleEval();
+  if (evalWanted()) scheduleEval();
   void maybeAiMove();
 });
 

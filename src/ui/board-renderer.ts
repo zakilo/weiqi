@@ -21,10 +21,10 @@ export interface RenderState {
   board: Board;
   lastMove: number | null;
   ghost: { pos: number; stone: Stone } | null;
-  /** AI 分析标记(回放暂停时展示) */
+  /** AI 分析标记(回放分析与对局提示共用) */
   analysis?: {
-    /** 候选着法(0..360 落点,361=虚着)与行棋方视角胜率 */
-    candidates: { pos: number; winRate: number }[];
+    /** 候选着法(0..360 落点,361=虚着)与行棋方视角胜率;best 高亮推荐的最佳手 */
+    candidates: { pos: number; winRate: number; best?: boolean }[];
     /** 变化线(含首手),与行棋方起始颜色 */
     variation?: { stone: Stone; moves: { pos: number; order: number }[] };
   };
@@ -134,18 +134,18 @@ export class BoardRenderer {
   /** 分析标记:候选点胜率圆标 + 变化线半透明棋子与编号 */
   private drawAnalysis(a: NonNullable<RenderState['analysis']>): void {
     const { ctx, cell } = this;
-    // 候选点:蓝色圆标 + 胜率百分比(虚着不画在盘上)
+    // 候选点:圆标 + 胜率百分比(最佳手金色高亮,其余蓝色;虚着不画在盘上)
     for (const c of a.candidates) {
       if (c.pos === BOARD_SIZE * BOARD_SIZE) continue;
       const [x, y] = this.pointToPixel(colOf(c.pos), rowOf(c.pos));
       ctx.beginPath();
       ctx.arc(x, y, cell * 0.42, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(30, 110, 190, 0.28)';
+      ctx.fillStyle = c.best ? 'rgba(214, 158, 34, 0.42)' : 'rgba(30, 110, 190, 0.28)';
       ctx.fill();
-      ctx.strokeStyle = '#1b5fa8';
-      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = c.best ? '#a06f10' : '#1b5fa8';
+      ctx.lineWidth = c.best ? 2 : 1.5;
       ctx.stroke();
-      ctx.fillStyle = '#0e3d70';
+      ctx.fillStyle = c.best ? '#6d4708' : '#0e3d70';
       ctx.font = `bold ${Math.max(cell * 0.3, 9)}px sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
