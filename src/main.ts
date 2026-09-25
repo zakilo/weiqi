@@ -489,6 +489,8 @@ async function startEval(): Promise<void> {
   // 期间状态可能已变化(切回放/终局/AI 开始思考),放弃本次
   if (!evalWanted() || mode !== 'play' || game.isFinished || aiPlayer.thinking) return;
   evalFor = evalSignature();
+  // 签名已切到当前局面:立即丢弃旧快照,避免新结果返回前把上一局面的候选/数值当成当前局面展示
+  evalSnapshot = null;
   evalClient.analyze(evalState());
 }
 
