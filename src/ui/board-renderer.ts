@@ -28,6 +28,8 @@ export interface RenderState {
     /** 变化线(含首手),与行棋方起始颜色 */
     variation?: { stone: Stone; moves: { pos: number; order: number }[] };
   };
+  /** 点目模式:标记为死子的位置(盘上画 X) */
+  deadStones?: number[];
 }
 
 /** Canvas 棋盘渲染器:木纹盘面、网格线、星位、坐标标注 */
@@ -129,6 +131,29 @@ export class BoardRenderer {
       const [x, y] = this.pointToPixel(colOf(ghost.pos), rowOf(ghost.pos));
       this.drawStone(x, y, ghost.stone, 0.55);
     }
+    if (state.deadStones && state.deadStones.length > 0) {
+      for (const pos of state.deadStones) {
+        const [x, y] = this.pointToPixel(colOf(pos), rowOf(pos));
+        this.drawDeadMark(x, y);
+      }
+    }
+  }
+
+  /** 死子标记:半透明红色 X */
+  private drawDeadMark(x: number, y: number): void {
+    const { ctx, cell } = this;
+    const r = cell * 0.3;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(214, 48, 49, 0.92)';
+    ctx.lineWidth = Math.max(cell * 0.09, 2);
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x - r, y - r);
+    ctx.lineTo(x + r, y + r);
+    ctx.moveTo(x + r, y - r);
+    ctx.lineTo(x - r, y + r);
+    ctx.stroke();
+    ctx.restore();
   }
 
   /** 分析标记:候选点胜率圆标 + 变化线半透明棋子与编号 */

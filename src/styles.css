@@ -538,6 +538,11 @@ body {
     padding: 5px 8px;
   }
 
+  /* 点目面板:全宽 */
+  .count-panel {
+    width: 100%;
+  }
+
   .eval-text {
     font-size: 11px;
   }
@@ -580,6 +585,46 @@ body {
   min-height: 20px;
   font-size: 14px;
   color: #a0522d;
+}
+
+/* 点目面板 */
+.count-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(94vw, 82vh + 264px);
+  padding: 10px 12px;
+  border: 1px solid #c9b998;
+  border-radius: 8px;
+  background: #fffdf7;
+}
+
+.count-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #6b5636;
+}
+
+.count-result {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 14px;
+}
+
+.count-result .winner {
+  font-weight: 700;
+  color: #a0522d;
+}
+
+.count-result .dim {
+  color: #888;
+  font-size: 12px;
+}
+
+.count-actions {
+  display: flex;
+  gap: 8px;
 }
 
 .result-panel {

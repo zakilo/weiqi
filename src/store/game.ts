@@ -176,6 +176,7 @@ export class Game {
       blackScore: loser === BLACK ? 0 : 1,
       whiteScore: loser === WHITE ? 0 : 1,
       margin: winner === BLACK ? 1 : -1,
+      winner,
     };
     return { winner, loser };
   }

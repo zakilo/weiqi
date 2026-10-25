@@ -1,12 +1,12 @@
 import './styles.css';
-import { BLACK, colOf, idx, PASS, rowOf, Stone, WHITE } from './core/board';
+import { BLACK, colOf, EMPTY, idx, PASS, rowOf, Stone, WHITE } from './core/board';
 import { BoardRenderer, COLUMN_LABELS, type RenderState } from './ui/board-renderer';
 import { Game } from './store/game';
 import { exportGameSgf, exportLineSgf, parseSgfToLine } from './store/game-io';
 import { SgfLineMove } from './core/sgf';
 import { deleteGame, getGame, listGames, saveGame } from './store/db';
 import { Replay } from './store/replay';
-import { KOMI_AREA } from './core/scoring';
+import { KOMI_AREA, scoreGame } from './core/scoring';
 import { ServiceClient } from './engine/remote/service-client';
 import {
   RemoteAiPlayer,
@@ -55,11 +55,20 @@ app.innerHTML = `
       <button id="btn-pass" class="btn">虚着</button>
       <button id="btn-undo" class="btn">悔棋</button>
       <button id="btn-resign" class="btn" title="认输结束对局">认输</button>
+      <button id="btn-count" class="btn" title="点目(标记死子并结算)">点目</button>
       <button id="btn-eval" class="btn" title="形势判断(实时评估)">形势</button>
       <button id="btn-hint" class="btn" title="AI 提示(显示推荐候选点)">提示</button>
       <button id="btn-restart" class="btn primary">新对局</button>
     </div>
     <div id="eval-bar" class="eval-bar hidden"></div>
+    <div id="count-panel" class="count-panel hidden">
+      <div class="count-title">点目 · 点击棋子标记 / 取消死子</div>
+      <div id="count-result" class="count-result"></div>
+      <div class="count-actions">
+        <button id="btn-count-confirm" class="btn primary">确认以此结果结束</button>
+        <button id="btn-count-cancel" class="btn">取消</button>
+      </div>
+    </div>
     <div class="layout">
       <div class="board-wrap">
         <canvas id="board"></canvas>
@@ -153,6 +162,13 @@ let evalPaused = false;
 const evalBarEl = document.querySelector<HTMLDivElement>('#eval-bar')!;
 const evalButtonEl = document.querySelector<HTMLButtonElement>('#btn-eval')!;
 const hintButtonEl = document.querySelector<HTMLButtonElement>('#btn-hint')!;
+
+/** 点目模式:标记死子并预览结算,确认后以此结果结束对局 */
+let countingMode = false;
+const deadStones = new Set<number>();
+const countButtonEl = document.querySelector<HTMLButtonElement>('#btn-count')!;
+const countPanelEl = document.querySelector<HTMLDivElement>('#count-panel')!;
+const countResultEl = document.querySelector<HTMLDivElement>('#count-result')!;
 /** 是否轮到 AI 行棋(且非回放模式) */
 function isAiTurn(): boolean {
   if (mode !== 'play' || game.isFinished) return false;
@@ -212,9 +228,21 @@ function boardAnalysis(): RenderState['analysis'] {
 }
 
 function refresh(): void {
+  // 终局时自动退出点目模式
+  if (game.isFinished && countingMode) {
+    countingMode = false;
+    deadStones.clear();
+    countButtonEl.classList.remove('active');
+  }
   const displayBoard = mode === 'replay' && replay ? replay.board() : game.getBoard();
   const lastMove = mode === 'replay' && replay ? replay.lastPlayPos() : game.getLastPlayPos();
-  board.setState({ board: displayBoard, lastMove, ghost, analysis: boardAnalysis() });
+  board.setState({
+    board: displayBoard,
+    lastMove,
+    ghost,
+    analysis: boardAnalysis(),
+    deadStones: countingMode ? [...deadStones] : undefined,
+  });
 
   const replayControls = document.querySelector<HTMLDivElement>('#replay-controls')!;
   const playButtons = [
@@ -231,11 +259,13 @@ function refresh(): void {
     resultPanel.classList.add('hidden');
     updateAutoplayButton();
     renderEvalBar();
+    renderCountPanel();
     return;
   }
 
   replayControls.classList.add('hidden');
   for (const b of playButtons) b.disabled = false;
+  if (countingMode) for (const b of playButtons) b.disabled = true; // 点目中禁止落子等操作
   moveCountEl.textContent = `手数:${game.moveCount}`;
   if (aiPlayer.thinking) {
     statusEl.textContent = 'AI 思考中…';
@@ -251,11 +281,29 @@ function refresh(): void {
     `;
     if (evalWanted()) stopEval(); // 终局:停流并清空展示(结果面板已有实际数子)
   } else {
-    statusEl.textContent = `${stoneName(game.currentStone)}棋落子`;
+    statusEl.textContent = countingMode ? '点目中' : `${stoneName(game.currentStone)}棋落子`;
     resultPanel.classList.add('hidden');
   }
 
   renderEvalBar();
+  renderCountPanel();
+}
+
+/** 渲染点目面板:实时结算预览(含死子) */
+function renderCountPanel(): void {
+  if (!countingMode || mode !== 'play') {
+    countPanelEl.classList.add('hidden');
+    return;
+  }
+  countPanelEl.classList.remove('hidden');
+  const result = scoreGame(game.getBoard(), [...deadStones], KOMI_AREA);
+  const winnerText = result.margin >= 0 ? '黑胜' : '白胜';
+  countResultEl.innerHTML = `
+    <span>黑:${result.blackScore.toFixed(2)} 子</span>
+    <span>白:${result.whiteScore.toFixed(2)} 子</span>
+    <span class="winner">${winnerText} ${Math.abs(result.margin).toFixed(2)} 子</span>
+    <span class="dim">已标死子 ${deadStones.size} 枚</span>
+  `;
 }
 
 function stopAutoplay(): void {
@@ -534,10 +582,19 @@ function renderEvalBar(): void {
 
 // 点击落子(仅对弈模式)
 canvas.addEventListener('click', (e) => {
-  if (mode !== 'play' || aiPlayer.thinking || isAiTurn()) return;
   const rect = canvas.getBoundingClientRect();
   const pt = board.pixelToPoint(e.clientX - rect.left, e.clientY - rect.top);
   if (!pt) return;
+  // 点目模式:点击棋子标记 / 取消死子
+  if (countingMode) {
+    const pos = idx(pt.col, pt.row);
+    if (game.getBoard().get(pos) === EMPTY) return; // 仅可标记有子的点
+    if (deadStones.has(pos)) deadStones.delete(pos);
+    else deadStones.add(pos);
+    refresh();
+    return;
+  }
+  if (mode !== 'play' || aiPlayer.thinking || isAiTurn()) return;
   tryPlay(pt.col, pt.row);
 });
 
@@ -582,6 +639,42 @@ document.querySelector('#btn-resign')!.addEventListener('click', () => {
   messageEl.textContent = `${stoneName(resigner)}认输,${stoneName(winner)}胜`;
   stopEval();
   refresh();
+});
+
+// ---- 点目(标记死子 + 结算预览 + 确认结束) ----
+countButtonEl.addEventListener('click', () => {
+  if (mode !== 'play' || game.isFinished) return;
+  countingMode = !countingMode;
+  deadStones.clear();
+  countButtonEl.classList.toggle('active', countingMode);
+  if (countingMode) {
+    stopEval(); // 点目时停评估流,避免干扰
+    messageEl.textContent = '点目模式:点击棋子标记死子,确认后以此结果结束';
+  } else {
+    messageEl.textContent = '已退出点目模式';
+    if (evalWanted()) scheduleEval();
+  }
+  refresh();
+});
+
+document.querySelector('#btn-count-confirm')!.addEventListener('click', () => {
+  if (!countingMode) return;
+  game.finishWithScore([...deadStones]);
+  countingMode = false;
+  deadStones.clear();
+  countButtonEl.classList.remove('active');
+  messageEl.textContent = '已按点目结果结束对局';
+  stopEval();
+  refresh();
+});
+
+document.querySelector('#btn-count-cancel')!.addEventListener('click', () => {
+  countingMode = false;
+  deadStones.clear();
+  countButtonEl.classList.remove('active');
+  messageEl.textContent = '已取消点目';
+  refresh();
+  if (evalWanted()) scheduleEval();
 });
 
 // ---- 对弈模式与难度 ----
