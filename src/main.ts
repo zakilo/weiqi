@@ -72,6 +72,7 @@ app.innerHTML = `
             <button id="btn-export" class="btn small" title="导出当前对局为 SGF 文件">导出</button>
           </div>
         </div>
+        <button id="btn-panel-toggle" class="panel-toggle">收起面板</button>
         <ul id="game-list" class="game-list"></ul>
         <input id="file-input" type="file" accept=".sgf" class="hidden" />
         <div id="analysis-panel" class="analysis-panel hidden">
@@ -858,6 +859,16 @@ new ResizeObserver(() => board.resize()).observe(canvas);
 board.resize();
 refresh();
 void renderLibrary();
+
+// ---- 面板折叠(移动端) ----
+const panelToggleBtn = document.querySelector<HTMLButtonElement>('#btn-panel-toggle')!;
+const libraryEl = document.querySelector<HTMLElement>('.library')!;
+panelToggleBtn.addEventListener('click', () => {
+  libraryEl.classList.toggle('collapsed');
+  panelToggleBtn.textContent = libraryEl.classList.contains('collapsed') ? '展开面板' : '收起面板';
+  // 折叠后重新计算棋盘大小
+  setTimeout(() => board.resize(), 350);
+});
 
 // ---- AI 服务面板(远端模型管理与状态) ----
 const serviceConnEl = document.querySelector<HTMLSpanElement>('#service-conn')!;

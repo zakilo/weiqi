@@ -31,3 +31,6 @@ npm-debug.log*
 
 # 测试 / 覆盖率
 coverage/
+
+# 截图（评测 / 验证）
+*.png
