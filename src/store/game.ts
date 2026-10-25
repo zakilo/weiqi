@@ -161,6 +161,25 @@ export class Game {
     return this._result!;
   }
 
+  /** 认输:当前行棋方认输,对方获胜 */
+  resign(): { winner: Stone; loser: Stone } {
+    const loser = this.currentStone;
+    const winner = loser === BLACK ? WHITE : BLACK;
+    this.finished = true;
+    // 认输时不计分,仅记录胜负
+    this._result = {
+      blackStones: 0,
+      whiteStones: 0,
+      blackTerritory: 0,
+      whiteTerritory: 0,
+      neutral: 0,
+      blackScore: loser === BLACK ? 0 : 1,
+      whiteScore: loser === WHITE ? 0 : 1,
+      margin: winner === BLACK ? 1 : -1,
+    };
+    return { winner, loser };
+  }
+
   /** 下一手打劫检测参照:上一手落子前的局面哈希 */
   get prevHashForNext(): bigint {
     return this.beforeHashes.length > 0

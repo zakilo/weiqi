@@ -54,6 +54,7 @@ app.innerHTML = `
       </select>
       <button id="btn-pass" class="btn">虚着</button>
       <button id="btn-undo" class="btn">悔棋</button>
+      <button id="btn-resign" class="btn" title="认输结束对局">认输</button>
       <button id="btn-eval" class="btn" title="形势判断(实时评估)">形势</button>
       <button id="btn-hint" class="btn" title="AI 提示(显示推荐候选点)">提示</button>
       <button id="btn-restart" class="btn primary">新对局</button>
@@ -219,6 +220,7 @@ function refresh(): void {
   const playButtons = [
     document.querySelector<HTMLButtonElement>('#btn-pass')!,
     document.querySelector<HTMLButtonElement>('#btn-undo')!,
+    document.querySelector<HTMLButtonElement>('#btn-resign')!,
     hintButtonEl, // AI 提示仅在窗口期可用(回放候选由回放分析流驱动)
   ];
   if (mode === 'replay' && replay) {
@@ -566,6 +568,20 @@ document.querySelector('#btn-pass')!.addEventListener('click', () => {
   refresh();
   if (evalWanted()) scheduleEval();
   void maybeAiMove();
+});
+
+// 认输
+document.querySelector('#btn-resign')!.addEventListener('click', () => {
+  if (game.isFinished) return;
+  if (aiPlayer.thinking) {
+    messageEl.textContent = 'AI 思考中,请稍候';
+    return;
+  }
+  const resigner = game.currentStone;
+  const { winner } = game.resign();
+  messageEl.textContent = `${stoneName(resigner)}认输,${stoneName(winner)}胜`;
+  stopEval();
+  refresh();
 });
 
 // ---- 对弈模式与难度 ----
