@@ -259,19 +259,21 @@ export class BoardRenderer {
 
   /** 坐标标注:上下边标列字母,左右边标行数字(从上到下 1-19) */
   private drawCoordinates(): void {
-    const { ctx, cell, padding } = this;
+    const { ctx, cell, padding, viewSize } = this;
     ctx.fillStyle = '#6b5636';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     const fontSize = Math.max(cell * 0.32, 8);
     ctx.font = `${fontSize}px sans-serif`;
+    // 坐标内缩到画布边缘以内,避免文字被裁切一半
+    const edge = cell * 0.42;
     for (let i = 0; i < BOARD_SIZE; i++) {
       const label = COLUMN_LABELS[i];
       const rowLabel = String(i + 1);
-      const topY = padding - cell;
-      const bottomY = padding + cell * (BOARD_SIZE - 1) + cell;
-      const leftX = padding - cell;
-      const rightX = padding + cell * (BOARD_SIZE - 1) + cell;
+      const topY = edge;
+      const bottomY = viewSize - edge;
+      const leftX = edge;
+      const rightX = viewSize - edge;
       const x = padding + i * cell;
       ctx.fillText(label, x, topY);
       ctx.fillText(label, x, bottomY);

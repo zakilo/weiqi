@@ -80,9 +80,9 @@ app.innerHTML = `
             <button id="btn-save" class="btn small" title="当前对局存入棋谱库">保存</button>
             <button id="btn-import" class="btn small" title="从 SGF 文件导入">导入</button>
             <button id="btn-export" class="btn small" title="导出当前对局为 SGF 文件">导出</button>
+            <button id="btn-panel-toggle" class="btn small panel-toggle">收起面板</button>
           </div>
         </div>
-        <button id="btn-panel-toggle" class="panel-toggle">收起面板</button>
         <ul id="game-list" class="game-list"></ul>
         <input id="file-input" type="file" accept=".sgf" class="hidden" />
         <div id="analysis-panel" class="analysis-panel hidden">
@@ -328,6 +328,7 @@ function refresh(): void {
   if (mode === 'replay' && replay) {
     replayControls.classList.remove('hidden');
     for (const b of playButtons) b.disabled = true;
+    countButtonEl.disabled = true; // 回放中点目无效,禁用避免困惑
     moveCountEl.textContent = `第 ${replay.pos}/${replay.moveCount} 手`;
     statusEl.textContent = '棋谱回放';
     resultPanel.classList.add('hidden');
@@ -339,6 +340,7 @@ function refresh(): void {
 
   replayControls.classList.add('hidden');
   for (const b of playButtons) b.disabled = false;
+  countButtonEl.disabled = false;
   if (countingMode) for (const b of playButtons) b.disabled = true; // 点目中禁止落子等操作
   moveCountEl.textContent = `手数:${game.moveCount}`;
   if (aiPlayer.thinking) {
@@ -1049,8 +1051,8 @@ const libraryEl = document.querySelector<HTMLElement>('.library')!;
 panelToggleBtn.addEventListener('click', () => {
   libraryEl.classList.toggle('collapsed');
   panelToggleBtn.textContent = libraryEl.classList.contains('collapsed') ? '展开面板' : '收起面板';
-  // 折叠后重新计算棋盘大小
-  setTimeout(() => board.resize(), 350);
+  // 折叠为即时布局变化,立即重算棋盘
+  board.resize();
 });
 
 // ---- AI 服务面板(远端模型管理与状态) ----
