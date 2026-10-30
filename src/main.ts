@@ -1,5 +1,5 @@
 import './styles.css';
-import { BLACK, colOf, EMPTY, idx, PASS, rowOf, Stone, WHITE } from './core/board';
+import { BLACK, BOARD_SIZE, colOf, EMPTY, idx, PASS, rowOf, Stone, WHITE } from './core/board';
 import { BoardRenderer, COLUMN_LABELS, type RenderState } from './ui/board-renderer';
 import { Game } from './store/game';
 import { exportGameSgf, exportLineSgf, parseSgfToLine } from './store/game-io';
@@ -62,7 +62,7 @@ app.innerHTML = `
     </div>
     <div id="eval-bar" class="eval-bar hidden"></div>
     <div id="count-panel" class="count-panel hidden">
-      <div class="count-title">点目 · 点击棋子标记 / 取消死子</div>
+      <div class="count-title">点目 · AI 自动标记死子(虚线半透明)</div>
       <div id="count-result" class="count-result"></div>
       <div class="count-actions">
         <button id="btn-count-confirm" class="btn primary">确认以此结果结束</button>
@@ -169,6 +169,79 @@ const deadStones = new Set<number>();
 const countButtonEl = document.querySelector<HTMLButtonElement>('#btn-count')!;
 const countPanelEl = document.querySelector<HTMLDivElement>('#count-panel')!;
 const countResultEl = document.querySelector<HTMLDivElement>('#count-result')!;
+
+/** 点目分析流:请求 ownership 以自动判定死子 */
+const countClient = new RemoteAnalysisClient(serviceClient);
+let countSnapshot: AnalyzeSnapshot | null = null;
+let countTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** 点目请求(从空盘起的完整手顺 + komi + ownership) */
+function countState(): RemoteAnalysisState {
+  const moves = game.getMoves().map((m) => ({
+    stone: m.stone === BLACK ? ('B' as const) : ('W' as const),
+    pos: m.kind === 'play' ? m.pos : null,
+  }));
+  return { moves, komi: KOMI_AREA, includeOwnership: true };
+}
+
+/** 停止点目分析流并清空快照 */
+function stopCount(): void {
+  if (countTimer !== null) {
+    clearTimeout(countTimer);
+    countTimer = null;
+  }
+  countClient.stop();
+  countSnapshot = null;
+}
+
+/** 延迟启动点目分析(防抖) */
+function scheduleCount(): void {
+  if (!countingMode || mode !== 'play' || game.isFinished) return;
+  if (countTimer !== null) clearTimeout(countTimer);
+  countTimer = setTimeout(() => {
+    countTimer = null;
+    void startCount();
+  }, 200);
+}
+
+/** 连接服务并分析当前局面(带 ownership) */
+async function startCount(): Promise<void> {
+  if (!countingMode || mode !== 'play' || game.isFinished) return;
+  try {
+    await countClient.ensure();
+  } catch {
+    messageEl.textContent = 'AI 服务不可用,无法自动点目';
+    return;
+  }
+  if (!countingMode || mode !== 'play' || game.isFinished) return;
+  countClient.analyze(countState());
+}
+
+/** 依据 ownership 自动判定死子:棋子颜色与该点归属相反即视为死子 */
+function computeDeadStones(ownership: number[] | undefined): number[] {
+  if (!ownership) return [];
+  const boardNow = game.getBoard();
+  const THRESHOLD = 0.3;
+  const dead: number[] = [];
+  for (let pos = 0; pos < BOARD_SIZE * BOARD_SIZE; pos++) {
+    const v = boardNow.get(pos);
+    if (v === EMPTY) continue;
+    const own = ownership[pos] ?? 0;
+    if (v === BLACK && own < -THRESHOLD) dead.push(pos);
+    else if (v === WHITE && own > THRESHOLD) dead.push(pos);
+  }
+  return dead;
+}
+
+countClient.callbacks.onSnapshot = (snap) => {
+  countSnapshot = snap;
+  deadStones.clear();
+  for (const p of computeDeadStones(snap.ownership)) deadStones.add(p);
+  refresh();
+};
+countClient.callbacks.onError = (message) => {
+  messageEl.textContent = `点目分析失败:${message}`;
+};
 /** 是否轮到 AI 行棋(且非回放模式) */
 function isAiTurn(): boolean {
   if (mode !== 'play' || game.isFinished) return false;
@@ -233,6 +306,7 @@ function refresh(): void {
     countingMode = false;
     deadStones.clear();
     countButtonEl.classList.remove('active');
+    stopCount();
   }
   const displayBoard = mode === 'replay' && replay ? replay.board() : game.getBoard();
   const lastMove = mode === 'replay' && replay ? replay.lastPlayPos() : game.getLastPlayPos();
@@ -296,13 +370,17 @@ function renderCountPanel(): void {
     return;
   }
   countPanelEl.classList.remove('hidden');
+  if (!countSnapshot?.ownership) {
+    countResultEl.innerHTML = `<span class="dim">AI 正在计算死子与归属…</span>`;
+    return;
+  }
   const result = scoreGame(game.getBoard(), [...deadStones], KOMI_AREA);
   const winnerText = result.margin >= 0 ? '黑胜' : '白胜';
   countResultEl.innerHTML = `
     <span>黑:${result.blackScore.toFixed(2)} 子</span>
     <span>白:${result.whiteScore.toFixed(2)} 子</span>
     <span class="winner">${winnerText} ${Math.abs(result.margin).toFixed(2)} 子</span>
-    <span class="dim">已标死子 ${deadStones.size} 枚</span>
+    <span class="dim">自动判定死子 ${deadStones.size} 枚</span>
   `;
 }
 
@@ -582,18 +660,10 @@ function renderEvalBar(): void {
 
 // 点击落子(仅对弈模式)
 canvas.addEventListener('click', (e) => {
+  if (countingMode) return; // 点目模式不接受落子(死子由 AI 自动判定)
   const rect = canvas.getBoundingClientRect();
   const pt = board.pixelToPoint(e.clientX - rect.left, e.clientY - rect.top);
   if (!pt) return;
-  // 点目模式:点击棋子标记 / 取消死子
-  if (countingMode) {
-    const pos = idx(pt.col, pt.row);
-    if (game.getBoard().get(pos) === EMPTY) return; // 仅可标记有子的点
-    if (deadStones.has(pos)) deadStones.delete(pos);
-    else deadStones.add(pos);
-    refresh();
-    return;
-  }
   if (mode !== 'play' || aiPlayer.thinking || isAiTurn()) return;
   tryPlay(pt.col, pt.row);
 });
@@ -641,7 +711,7 @@ document.querySelector('#btn-resign')!.addEventListener('click', () => {
   refresh();
 });
 
-// ---- 点目(标记死子 + 结算预览 + 确认结束) ----
+// ---- 点目(AI 自动判定死子 + 归属 + 结算预览 + 确认结束) ----
 countButtonEl.addEventListener('click', () => {
   if (mode !== 'play' || game.isFinished) return;
   countingMode = !countingMode;
@@ -649,9 +719,11 @@ countButtonEl.addEventListener('click', () => {
   countButtonEl.classList.toggle('active', countingMode);
   if (countingMode) {
     stopEval(); // 点目时停评估流,避免干扰
-    messageEl.textContent = '点目模式:点击棋子标记死子,确认后以此结果结束';
+    messageEl.textContent = '点目模式:AI 正在自动判定死子与归属,请稍候';
+    scheduleCount(); // 启动带 ownership 的分析流
   } else {
     messageEl.textContent = '已退出点目模式';
+    stopCount();
     if (evalWanted()) scheduleEval();
   }
   refresh();
@@ -665,6 +737,7 @@ document.querySelector('#btn-count-confirm')!.addEventListener('click', () => {
   countButtonEl.classList.remove('active');
   messageEl.textContent = '已按点目结果结束对局';
   stopEval();
+  stopCount();
   refresh();
 });
 
@@ -673,6 +746,7 @@ document.querySelector('#btn-count-cancel')!.addEventListener('click', () => {
   deadStones.clear();
   countButtonEl.classList.remove('active');
   messageEl.textContent = '已取消点目';
+  stopCount();
   refresh();
   if (evalWanted()) scheduleEval();
 });

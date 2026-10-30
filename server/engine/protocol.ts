@@ -24,6 +24,8 @@ export interface AnalysisQuery {
   reportDuringSearchEvery?: number;
   /** 返回神经网络原始策略(policy/humanPolicy,humanSL 采样必需) */
   includePolicy?: boolean;
+  /** 返回每点归属 ownership(正=黑、负=白),用于自动判定死子 */
+  includeOwnership?: boolean;
   /** 覆盖单条查询的配置(如 humanSLProfile / ignorePreRootHistory) */
   overrideSettings?: Record<string, unknown>;
 }
@@ -56,12 +58,15 @@ export interface AnalysisResponse {
   policy?: number[];
   /** humanSLProfile 下的根级人类策略(格式同 policy) */
   humanPolicy?: number[];
+  /** includeOwnership 时的每点归属:下标即棋盘索引,正=黑、负=白,范围 [-1,1] */
+  ownership?: number[];
 }
 
 export interface BuildQueryOptions {
   maxVisits?: number;
   reportDuringSearchEvery?: number;
   includePolicy?: boolean;
+  includeOwnership?: boolean;
   overrideSettings?: Record<string, unknown>;
 }
 
@@ -96,6 +101,7 @@ export function buildAnalysisQuery(
     query.reportDuringSearchEvery = Math.floor(options.reportDuringSearchEvery);
   }
   if (options.includePolicy) query.includePolicy = true;
+  if (options.includeOwnership) query.includeOwnership = true;
   if (options.overrideSettings) query.overrideSettings = options.overrideSettings;
   return query;
 }
@@ -119,6 +125,8 @@ export interface ParsedAnalysis {
   visits: number;
   /** 当前最佳着法(0..360 或 PASS) */
   bestMove: number;
+  /** 每点归属(正=黑、负=白);includeOwnership 时存在 */
+  ownership?: number[];
 }
 
 /** 解析响应为内部候选结构(按访问次数降序,非法着法被忽略) */
@@ -149,6 +157,7 @@ export function parseAnalysis(response: AnalysisResponse): ParsedAnalysis {
     rootScoreLead: Number.isFinite(rootInfo.scoreLead) ? (rootInfo.scoreLead as number) : 0,
     visits,
     bestMove: candidates.length > 0 ? candidates[0]!.pos : PASS,
+    ownership: Array.isArray(response.ownership) ? response.ownership : undefined,
   };
 }
 
@@ -271,5 +280,6 @@ export function toSnapshot(response: AnalysisResponse): AnalyzeSnapshot {
     rootScoreLead: parsed.rootScoreLead,
     bestMove: parsed.bestMove,
     candidates: parsed.candidates,
+    ownership: parsed.ownership,
   };
 }

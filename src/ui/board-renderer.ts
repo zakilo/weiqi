@@ -111,12 +111,15 @@ export class BoardRenderer {
   /** 棋子、最后一手标记、悬停预览 */
   private drawState(state: RenderState): void {
     const { board, lastMove, ghost } = state;
+    const dead = new Set(state.deadStones ?? []);
     for (let row = 0; row < BOARD_SIZE; row++) {
       for (let col = 0; col < BOARD_SIZE; col++) {
-        const v = board.get(row * BOARD_SIZE + col);
+        const pos = row * BOARD_SIZE + col;
+        const v = board.get(pos);
         if (v === EMPTY) continue;
         const [x, y] = this.pointToPixel(col, row);
-        this.drawStone(x, y, v as Stone);
+        const isDead = dead.has(pos);
+        this.drawStone(x, y, v as Stone, isDead ? 0.42 : 1, isDead);
       }
     }
     if (lastMove !== null) {
@@ -131,29 +134,6 @@ export class BoardRenderer {
       const [x, y] = this.pointToPixel(colOf(ghost.pos), rowOf(ghost.pos));
       this.drawStone(x, y, ghost.stone, 0.55);
     }
-    if (state.deadStones && state.deadStones.length > 0) {
-      for (const pos of state.deadStones) {
-        const [x, y] = this.pointToPixel(colOf(pos), rowOf(pos));
-        this.drawDeadMark(x, y);
-      }
-    }
-  }
-
-  /** 死子标记:半透明红色 X */
-  private drawDeadMark(x: number, y: number): void {
-    const { ctx, cell } = this;
-    const r = cell * 0.3;
-    ctx.save();
-    ctx.strokeStyle = 'rgba(214, 48, 49, 0.92)';
-    ctx.lineWidth = Math.max(cell * 0.09, 2);
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(x - r, y - r);
-    ctx.lineTo(x + r, y + r);
-    ctx.moveTo(x + r, y - r);
-    ctx.lineTo(x - r, y + r);
-    ctx.stroke();
-    ctx.restore();
   }
 
   /** 分析标记:候选点胜率圆标 + 变化线半透明棋子与编号 */
@@ -199,8 +179,8 @@ export class BoardRenderer {
     }
   }
 
-  /** 单枚棋子(径向渐变 + 描边);alpha 用于悬停预览 */
-  private drawStone(x: number, y: number, stone: Stone, alpha = 1): void {
+  /** 单枚棋子(径向渐变 + 描边);alpha 用于悬停预览/死子半透明,dashed 用于死子虚线描边 */
+  private drawStone(x: number, y: number, stone: Stone, alpha = 1, dashed = false): void {
     const { ctx, cell } = this;
     const r = cell * 0.46;
     ctx.save();
@@ -217,8 +197,14 @@ export class BoardRenderer {
     ctx.beginPath();
     ctx.arc(x, y, r, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = stone === BLACK ? '#000' : '#9a9a9a';
-    ctx.lineWidth = 1;
+    if (dashed) {
+      ctx.setLineDash([cell * 0.14, cell * 0.1]);
+      ctx.strokeStyle = stone === BLACK ? 'rgba(255, 255, 255, 0.95)' : 'rgba(50, 50, 50, 0.95)';
+      ctx.lineWidth = Math.max(cell * 0.07, 1.5);
+    } else {
+      ctx.strokeStyle = stone === BLACK ? '#000' : '#9a9a9a';
+      ctx.lineWidth = 1;
+    }
     ctx.stroke();
     ctx.restore();
   }

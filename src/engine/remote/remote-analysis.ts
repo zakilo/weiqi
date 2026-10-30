@@ -13,6 +13,8 @@ export interface RemoteAnalysisState {
   komi: number;
   /** 搜索访问次数上限;缺省用服务端默认值 */
   maxVisits?: number;
+  /** 返回每点归属 ownership(用于自动判定死子) */
+  includeOwnership?: boolean;
 }
 
 export interface RemoteAnalysisCallbacks {
@@ -54,6 +56,7 @@ export class RemoteAnalysisClient {
       komi: state.komi,
       rules: 'chinese',
       maxVisits: state.maxVisits,
+      includeOwnership: state.includeOwnership,
     };
     const handlers: AnalyzeHandlers = {
       onSnapshot: (snap) => {

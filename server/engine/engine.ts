@@ -158,6 +158,7 @@ export class EngineInstance {
     const query = buildAnalysisQuery(request, {
       maxVisits: request.maxVisits ?? this.deps.config.maxVisitsDefault,
       reportDuringSearchEvery: this.deps.config.reportDuringSearchEvery,
+      includeOwnership: request.includeOwnership,
     });
     const onSnapshot = options.onSnapshot;
     const response = await this.run(query, {

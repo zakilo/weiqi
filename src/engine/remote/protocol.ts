@@ -37,6 +37,8 @@ export interface ThinkRequest extends AiMoveRequest {
 export interface AnalyzeRequest extends AiMoveRequest {
   /** 搜索访问次数上限 */
   maxVisits?: number;
+  /** 返回每点归属 ownership(正=黑、负=白),用于自动判定死子 */
+  includeOwnership?: boolean;
 }
 
 /** 候选着法(取自 KataGo moveInfos) */
@@ -65,6 +67,8 @@ export interface AnalyzeSnapshot {
   /** 当前最佳着法 */
   bestMove: number;
   candidates: CandidateWire[];
+  /** 每点归属(正=黑、负=白,范围 [-1,1]);includeOwnership 时存在,用于自动判定死子 */
+  ownership?: number[];
 }
 
 /** think 结果 */
