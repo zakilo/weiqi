@@ -148,21 +148,62 @@ body {
   background: #fffdf7;
 }
 
-/* 移动端面板折叠按钮(桌面隐藏) */
+/* 面板折叠按钮(移动端显示,桌面隐藏) */
 .panel-toggle {
   display: none;
 }
 
-/* 面板折叠状态:仅保留头部(含展开按钮),隐藏正文 */
+/* 面板 tab 切换:棋盘下方同屏只展示一个模块 */
+.tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e6dcc4;
+}
+
+.tab {
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  color: #8a7a5c;
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.tab:hover {
+  background: #f2ead9;
+}
+
+.tab.active {
+  background: #6b5636;
+  color: #fffdf7;
+  font-weight: 600;
+}
+
+.tab-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  min-height: 0;
+}
+
+.tab-panel.hidden {
+  display: none;
+}
+
+/* 面板折叠状态:仅保留 tab 栏(含展开按钮),隐藏正文 */
 .library.collapsed {
   height: auto;
   max-height: none;
   overflow: visible;
 }
 
-.library.collapsed .game-list,
-.library.collapsed .analysis-panel,
-.library.collapsed .service-panel {
+.library.collapsed .tab-panel {
   display: none;
 }
 
@@ -253,8 +294,6 @@ body {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding-top: 10px;
-  border-top: 1px dashed #c9b998;
 }
 
 .service-paths {
@@ -378,11 +417,8 @@ body {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding-top: 10px;
-  border-top: 1px dashed #c9b998;
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
 }
 
 .analysis-panel .dim {
@@ -500,22 +536,37 @@ body {
 
   /* 棋盘最大化:占满可用宽度 */
   .board-wrap {
-    width: min(96vw, 96vw);
+    width: min(calc(100vw - 16px), calc(100dvh - 300px));
     max-width: 100%;
   }
 
-  /* 侧栏:全宽,可滚动 */
+  /* 侧栏:全宽,固定高度,tab 栏常驻、内容区内部滚动 */
   .library {
     width: 100%;
     max-width: 100%;
     height: auto;
-    max-height: 50vh;
+    max-height: 46vh;
+    overflow: hidden;
+  }
+
+  .tab-panel {
     overflow-y: auto;
+    min-height: 0;
+  }
+
+  .tab {
+    padding: 5px 10px;
+    font-size: 13px;
   }
 
   /* 移动端显示折叠按钮 */
   .panel-toggle {
     display: inline-block;
+  }
+
+  /* 收起面板:棋盘吃满剩余高度 */
+  body.panel-collapsed .board-wrap {
+    width: min(calc(100vw - 16px), calc(100dvh - 190px));
   }
 
   /* 评估条:全宽 */

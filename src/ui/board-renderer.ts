@@ -32,6 +32,39 @@ export interface RenderState {
   deadStones?: number[];
 }
 
+/** 盘面布局度量(纯函数,便于对窄屏做单测断言) */
+export interface BoardMetrics {
+  /** 网格间距(px) */
+  cell: number;
+  /** 最外圈网格线到画布边缘的距离(px) */
+  padding: number;
+  /** 收边线到边缘的距离(px) */
+  border: number;
+  /** 坐标文字中心到边缘的距离(px) */
+  labelEdge: number;
+  /** 坐标字号(px) */
+  labelFont: number;
+}
+
+/**
+ * 19 条线 18 个间隔,首尾各留 2 格:
+ * 外圈坐标带(padding 以外的环)里,文字居中于 labelEdge,收边线在更内侧,
+ * 保证任何画布宽度下都不会出现“线压字 / 字被裁切”。
+ */
+export function boardMetrics(view: number): BoardMetrics {
+  const cell = view / (BOARD_SIZE - 1 + 4);
+  const padding = cell * 2;
+  // 字号随画布缩放(小屏下限同样按比例,保证文字永远落在坐标带内)
+  const labelFont = Math.max(cell * 0.32, Math.min(8, view / 44));
+  return {
+    cell,
+    padding,
+    border: padding - cell * 0.95,
+    labelEdge: cell * 0.45,
+    labelFont,
+  };
+}
+
 /** Canvas 棋盘渲染器:木纹盘面、网格线、星位、坐标标注 */
 export class BoardRenderer {
   private readonly ctx: CanvasRenderingContext2D;
@@ -41,6 +74,12 @@ export class BoardRenderer {
   private cell = 0;
   /** 边缘留白(px,覆盖坐标标注) */
   private padding = 0;
+  /** 收边线到边缘的距离(px) */
+  private borderInset = 0;
+  /** 坐标文字中心到边缘的距离(px) */
+  private labelEdge = 0;
+  /** 坐标字号(px) */
+  private labelFont = 0;
   /** 当前渲染状态(棋盘棋子等动态内容) */
   private state: RenderState | null = null;
 
@@ -65,9 +104,13 @@ export class BoardRenderer {
     this.canvas.width = Math.round(view * dpr);
     this.canvas.height = Math.round(view * dpr);
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    // 19 条线 18 个间隔;首尾各留半格给外圈与坐标,再各留一格给标注区
-    this.cell = view / (BOARD_SIZE + 1);
-    this.padding = this.cell;
+    // 布局度量集中在 boardMetrics(),保证坐标与外框线互不遮挡
+    const m = boardMetrics(view);
+    this.cell = m.cell;
+    this.padding = m.padding;
+    this.borderInset = m.border;
+    this.labelEdge = m.labelEdge;
+    this.labelFont = m.labelFont;
     this.render();
   }
 
@@ -100,12 +143,11 @@ export class BoardRenderer {
       if (this.state.analysis) this.drawAnalysis(this.state.analysis);
     }
 
-    // 木纹区域略超出最外圈线,收边
-    const inner = padding - cell / 2;
+    // 收边线:位于坐标标注与最外圈网格线之间
     const span = cell * (BOARD_SIZE - 1);
     ctx.lineWidth = 2;
     ctx.strokeStyle = '#8a6a3b';
-    ctx.strokeRect(inner, inner, span + cell, span + cell);
+    ctx.strokeRect(this.borderInset, this.borderInset, span + (padding - this.borderInset) * 2, span + (padding - this.borderInset) * 2);
   }
 
   /** 棋子、最后一手标记、悬停预览 */
@@ -211,18 +253,13 @@ export class BoardRenderer {
 
   /** 木纹底色 */
   private drawWood(): void {
-    const { ctx, viewSize, cell, padding } = this;
-    const half = cell / 2;
+    const { ctx, viewSize } = this;
     const grad = ctx.createLinearGradient(0, 0, viewSize, viewSize);
     grad.addColorStop(0, '#e9c47e');
     grad.addColorStop(1, '#d3a253');
     ctx.fillStyle = grad;
-    ctx.fillRect(
-      padding - half,
-      padding - half,
-      cell * (BOARD_SIZE - 1) + cell,
-      cell * (BOARD_SIZE - 1) + cell,
-    );
+    // 木纹铺满画布,坐标标注带也在木纹上
+    ctx.fillRect(0, 0, viewSize, viewSize);
   }
 
   /** 网格线:19 横 19 纵,外圈线加粗 */
@@ -263,10 +300,9 @@ export class BoardRenderer {
     ctx.fillStyle = '#6b5636';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    const fontSize = Math.max(cell * 0.32, 8);
-    ctx.font = `${fontSize}px sans-serif`;
-    // 坐标内缩到画布边缘以内,避免文字被裁切一半
-    const edge = cell * 0.42;
+    ctx.font = `${this.labelFont}px sans-serif`;
+    // 坐标中心线:内缩到画布边缘以内,且始终位于收边线外侧
+    const edge = this.labelEdge;
     for (let i = 0; i < BOARD_SIZE; i++) {
       const label = COLUMN_LABELS[i];
       const rowLabel = String(i + 1);

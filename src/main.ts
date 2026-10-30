@@ -52,10 +52,9 @@ app.innerHTML = `
       <select id="level-select" class="btn" title="AI 难度">
         ${levelOptions}
       </select>
-      <button id="btn-pass" class="btn">虚着</button>
       <button id="btn-undo" class="btn">悔棋</button>
       <button id="btn-resign" class="btn" title="认输结束对局">认输</button>
-      <button id="btn-count" class="btn" title="点目(标记死子并结算)">点目</button>
+      <button id="btn-count" class="btn" title="点目(AI 自动判定死子并结算)">点目</button>
       <button id="btn-eval" class="btn" title="形势判断(实时评估)">形势</button>
       <button id="btn-hint" class="btn" title="AI 提示(显示推荐候选点)">提示</button>
       <button id="btn-restart" class="btn primary">新对局</button>
@@ -64,7 +63,7 @@ app.innerHTML = `
     <div id="count-panel" class="count-panel hidden">
       <div class="count-title">点目 · AI 自动标记死子(虚线半透明)</div>
       <div id="count-result" class="count-result"></div>
-      <div class="count-actions">
+      <div id="count-actions" class="count-actions">
         <button id="btn-count-confirm" class="btn primary">确认以此结果结束</button>
         <button id="btn-count-cancel" class="btn">取消</button>
       </div>
@@ -74,32 +73,34 @@ app.innerHTML = `
         <canvas id="board"></canvas>
       </div>
       <aside class="library">
-        <div class="library-head">
-          <h2>棋谱库</h2>
+        <div class="tabs">
+          <button class="tab active" data-tab="library" type="button">棋谱库</button>
+          <button class="tab" data-tab="analysis" type="button">AI 分析</button>
+          <button class="tab" data-tab="service" type="button">AI 服务</button>
+          <button id="btn-panel-toggle" class="btn small panel-toggle">收起面板</button>
+        </div>
+        <div class="tab-panel" data-panel="library">
           <div class="library-actions">
             <button id="btn-save" class="btn small" title="当前对局存入棋谱库">保存</button>
             <button id="btn-import" class="btn small" title="从 SGF 文件导入">导入</button>
             <button id="btn-export" class="btn small" title="导出当前对局为 SGF 文件">导出</button>
-            <button id="btn-panel-toggle" class="btn small panel-toggle">收起面板</button>
+          </div>
+          <ul id="game-list" class="game-list"></ul>
+          <input id="file-input" type="file" accept=".sgf" class="hidden" />
+        </div>
+        <div class="tab-panel hidden" data-panel="analysis">
+          <div id="analysis-panel" class="analysis-panel">
+            <div class="library-head"><span id="analysis-status" class="dim"></span></div>
+            <ul id="candidate-list" class="candidate-list"></ul>
+            <div id="variation-list" class="variation-list"></div>
           </div>
         </div>
-        <ul id="game-list" class="game-list"></ul>
-        <input id="file-input" type="file" accept=".sgf" class="hidden" />
-        <div id="analysis-panel" class="analysis-panel hidden">
-          <div class="library-head">
-            <h2>AI 分析</h2>
-            <span id="analysis-status" class="dim"></span>
+        <div class="tab-panel hidden" data-panel="service">
+          <div class="service-panel">
+            <div class="library-head"><span id="service-conn" class="badge">检查中…</span></div>
+            <div id="service-paths" class="service-paths"></div>
+            <ul id="service-models" class="service-models"></ul>
           </div>
-          <ul id="candidate-list" class="candidate-list"></ul>
-          <div id="variation-list" class="variation-list"></div>
-        </div>
-        <div class="service-panel">
-          <div class="library-head">
-            <h2>AI 服务</h2>
-            <span id="service-conn" class="badge">检查中…</span>
-          </div>
-          <div id="service-paths" class="service-paths"></div>
-          <ul id="service-models" class="service-models"></ul>
         </div>
       </aside>
     </div>
@@ -115,6 +116,38 @@ const messageEl = document.querySelector<HTMLDivElement>('#message')!;
 const resultPanel = document.querySelector<HTMLDivElement>('#result-panel')!;
 const vsSelect = document.querySelector<HTMLSelectElement>('#vs-select')!;
 const levelSelect = document.querySelector<HTMLSelectElement>('#level-select')!;
+
+/** 面板 tab:棋谱库 / AI 分析 / AI 服务,同屏只展示一个,避免在窄屏遮挡棋盘 */
+type PanelTab = 'library' | 'analysis' | 'service';
+const libraryEl = document.querySelector<HTMLElement>('.library')!;
+const panelToggleBtn = document.querySelector<HTMLButtonElement>('#btn-panel-toggle')!;
+const tabButtons = [...libraryEl.querySelectorAll<HTMLButtonElement>('.tab')];
+const tabPanels = [...libraryEl.querySelectorAll<HTMLDivElement>('.tab-panel')];
+
+/** 展开/收起面板体(移动端) */
+function toggleLibrary(open: boolean): void {
+  libraryEl.classList.toggle('collapsed', !open);
+  // 收起面板后棋盘可占用更多竖向空间
+  document.body.classList.toggle('panel-collapsed', !open);
+  panelToggleBtn.textContent = open ? '收起面板' : '展开面板';
+  // 折叠为即时布局变化,立即重算棋盘
+  board.resize();
+}
+
+/** 切换面板 tab;收起状态下先展开,保证内容可见 */
+function switchTab(name: PanelTab): void {
+  for (const btn of tabButtons) btn.classList.toggle('active', btn.dataset.tab === name);
+  for (const panel of tabPanels) panel.classList.toggle('hidden', panel.dataset.panel !== name);
+  if (libraryEl.classList.contains('collapsed')) toggleLibrary(false);
+}
+
+for (const btn of tabButtons) {
+  btn.addEventListener('click', () => switchTab((btn.dataset.tab ?? 'library') as PanelTab));
+}
+
+panelToggleBtn.addEventListener('click', () => {
+  toggleLibrary(libraryEl.classList.contains('collapsed'));
+});
 
 const board = new BoardRenderer(canvas);
 const game = new Game();
@@ -143,7 +176,6 @@ let variationLine: number[] = [];
 let analysisTimer: ReturnType<typeof setTimeout> | null = null;
 let analysisBackend = '';
 
-const analysisPanel = document.querySelector<HTMLDivElement>('#analysis-panel')!;
 const analysisStatusEl = document.querySelector<HTMLSpanElement>('#analysis-status')!;
 const candidateListEl = document.querySelector<HTMLUListElement>('#candidate-list')!;
 const variationListEl = document.querySelector<HTMLDivElement>('#variation-list')!;
@@ -169,17 +201,34 @@ const deadStones = new Set<number>();
 const countButtonEl = document.querySelector<HTMLButtonElement>('#btn-count')!;
 const countPanelEl = document.querySelector<HTMLDivElement>('#count-panel')!;
 const countResultEl = document.querySelector<HTMLDivElement>('#count-result')!;
+const countActionsEl = document.querySelector<HTMLDivElement>('#count-actions')!;
 
 /** 点目分析流:请求 ownership 以自动判定死子 */
 const countClient = new RemoteAnalysisClient(serviceClient);
 let countSnapshot: AnalyzeSnapshot | null = null;
 let countTimer: ReturnType<typeof setTimeout> | null = null;
 
-/** 点目请求(从空盘起的完整手顺 + komi + ownership) */
+/** 当前视角的手顺(回放取回放线前 pos 手,对局取完整棋谱) */
+function currentMoves(): { stone: Stone; pos: number | null }[] {
+  if (mode === 'replay' && replay) {
+    return replay.lineMoves().slice(0, replay.pos).map((m) => ({
+      stone: m.stone,
+      pos: m.col === null || m.row === null ? null : idx(m.col, m.row),
+    }));
+  }
+  return game.getMoves().map((m) => ({ stone: m.stone, pos: m.kind === 'play' ? m.pos : null }));
+}
+
+/** 当前点目是否可继续(对局需未终局,回放需有棋谱) */
+function countingAllowed(): boolean {
+  return mode === 'replay' ? replay !== null : !game.isFinished;
+}
+
+/** 点目请求(当前视角的完整手顺 + komi + ownership) */
 function countState(): RemoteAnalysisState {
-  const moves = game.getMoves().map((m) => ({
+  const moves = currentMoves().map((m) => ({
     stone: m.stone === BLACK ? ('B' as const) : ('W' as const),
-    pos: m.kind === 'play' ? m.pos : null,
+    pos: m.pos,
   }));
   return { moves, komi: KOMI_AREA, includeOwnership: true };
 }
@@ -196,7 +245,7 @@ function stopCount(): void {
 
 /** 延迟启动点目分析(防抖) */
 function scheduleCount(): void {
-  if (!countingMode || mode !== 'play' || game.isFinished) return;
+  if (!countingMode || !countingAllowed()) return;
   if (countTimer !== null) clearTimeout(countTimer);
   countTimer = setTimeout(() => {
     countTimer = null;
@@ -206,21 +255,21 @@ function scheduleCount(): void {
 
 /** 连接服务并分析当前局面(带 ownership) */
 async function startCount(): Promise<void> {
-  if (!countingMode || mode !== 'play' || game.isFinished) return;
+  if (!countingMode || !countingAllowed()) return;
   try {
     await countClient.ensure();
   } catch {
     messageEl.textContent = 'AI 服务不可用,无法自动点目';
     return;
   }
-  if (!countingMode || mode !== 'play' || game.isFinished) return;
+  if (!countingMode || !countingAllowed()) return;
   countClient.analyze(countState());
 }
 
 /** 依据 ownership 自动判定死子:棋子颜色与该点归属相反即视为死子 */
 function computeDeadStones(ownership: number[] | undefined): number[] {
   if (!ownership) return [];
-  const boardNow = game.getBoard();
+  const boardNow = mode === 'replay' && replay ? replay.board() : game.getBoard();
   const THRESHOLD = 0.3;
   const dead: number[] = [];
   for (let pos = 0; pos < BOARD_SIZE * BOARD_SIZE; pos++) {
@@ -301,8 +350,8 @@ function boardAnalysis(): RenderState['analysis'] {
 }
 
 function refresh(): void {
-  // 终局时自动退出点目模式
-  if (game.isFinished && countingMode) {
+  // 终局时自动退出点目模式(回放视角的 game 状态与展示无关,不触发)
+  if (mode === 'play' && game.isFinished && countingMode) {
     countingMode = false;
     deadStones.clear();
     countButtonEl.classList.remove('active');
@@ -320,7 +369,6 @@ function refresh(): void {
 
   const replayControls = document.querySelector<HTMLDivElement>('#replay-controls')!;
   const playButtons = [
-    document.querySelector<HTMLButtonElement>('#btn-pass')!,
     document.querySelector<HTMLButtonElement>('#btn-undo')!,
     document.querySelector<HTMLButtonElement>('#btn-resign')!,
     hintButtonEl, // AI 提示仅在窗口期可用(回放候选由回放分析流驱动)
@@ -328,7 +376,6 @@ function refresh(): void {
   if (mode === 'replay' && replay) {
     replayControls.classList.remove('hidden');
     for (const b of playButtons) b.disabled = true;
-    countButtonEl.disabled = true; // 回放中点目无效,禁用避免困惑
     moveCountEl.textContent = `第 ${replay.pos}/${replay.moveCount} 手`;
     statusEl.textContent = '棋谱回放';
     resultPanel.classList.add('hidden');
@@ -340,7 +387,6 @@ function refresh(): void {
 
   replayControls.classList.add('hidden');
   for (const b of playButtons) b.disabled = false;
-  countButtonEl.disabled = false;
   if (countingMode) for (const b of playButtons) b.disabled = true; // 点目中禁止落子等操作
   moveCountEl.textContent = `手数:${game.moveCount}`;
   if (aiPlayer.thinking) {
@@ -365,18 +411,20 @@ function refresh(): void {
   renderCountPanel();
 }
 
-/** 渲染点目面板:实时结算预览(含死子) */
+/** 渲染点目面板:实时结算预览(含死子);回放视角只做预览,不提供结束对局 */
 function renderCountPanel(): void {
-  if (!countingMode || mode !== 'play') {
+  if (!countingMode) {
     countPanelEl.classList.add('hidden');
     return;
   }
   countPanelEl.classList.remove('hidden');
+  countActionsEl.classList.toggle('hidden', mode === 'replay');
   if (!countSnapshot?.ownership) {
     countResultEl.innerHTML = `<span class="dim">AI 正在计算死子与归属…</span>`;
     return;
   }
-  const result = scoreGame(game.getBoard(), [...deadStones], KOMI_AREA);
+  const boardNow = mode === 'replay' && replay ? replay.board() : game.getBoard();
+  const result = scoreGame(boardNow, [...deadStones], KOMI_AREA);
   const winnerText = result.margin >= 0 ? '黑胜' : '白胜';
   countResultEl.innerHTML = `
     <span>黑:${result.blackScore.toFixed(2)} 子</span>
@@ -479,6 +527,11 @@ function stopAnalysis(): void {
 /** 延迟启动分析(跳步连续触发时防抖) */
 function scheduleAnalysis(): void {
   if (!replay) return;
+  if (countingMode) {
+    // 点目中:同一局面改由点目流分析(带 ownership),避免两路请求争用引擎槽位
+    scheduleCount();
+    return;
+  }
   if (analysisTimer !== null) clearTimeout(analysisTimer);
   analysisTimer = setTimeout(() => {
     analysisTimer = null;
@@ -688,17 +741,6 @@ canvas.addEventListener('mouseleave', () => {
   refresh();
 });
 
-document.querySelector('#btn-pass')!.addEventListener('click', () => {
-  if (aiPlayer.thinking || isAiTurn()) return;
-  // 点击时刻 currentStone 即虚着方(pass 后会切换)
-  const passer = game.currentStone;
-  game.pass();
-  messageEl.textContent = game.isFinished ? '双方虚着,终局数子' : `${stoneName(passer)}虚着`;
-  refresh();
-  if (evalWanted()) scheduleEval();
-  void maybeAiMove();
-});
-
 // 认输
 document.querySelector('#btn-resign')!.addEventListener('click', () => {
   if (game.isFinished) return;
@@ -715,24 +757,26 @@ document.querySelector('#btn-resign')!.addEventListener('click', () => {
 
 // ---- 点目(AI 自动判定死子 + 归属 + 结算预览 + 确认结束) ----
 countButtonEl.addEventListener('click', () => {
-  if (mode !== 'play' || game.isFinished) return;
+  if (!countingAllowed()) return;
   countingMode = !countingMode;
   deadStones.clear();
   countButtonEl.classList.toggle('active', countingMode);
   if (countingMode) {
     stopEval(); // 点目时停评估流,避免干扰
+    if (mode === 'replay') stopAnalysis(); // 回放跳步时由点目流接管同一局面,避免两路争用引擎
     messageEl.textContent = '点目模式:AI 正在自动判定死子与归属,请稍候';
     scheduleCount(); // 启动带 ownership 的分析流
   } else {
     messageEl.textContent = '已退出点目模式';
     stopCount();
-    if (evalWanted()) scheduleEval();
+    if (mode === 'replay') scheduleAnalysis();
+    else if (evalWanted()) scheduleEval();
   }
   refresh();
 });
 
 document.querySelector('#btn-count-confirm')!.addEventListener('click', () => {
-  if (!countingMode) return;
+  if (!countingMode || mode === 'replay') return;
   game.finishWithScore([...deadStones]);
   countingMode = false;
   deadStones.clear();
@@ -796,7 +840,7 @@ function enterReplay(line: readonly SgfLineMove[], truncated = false): void {
   }
   stopAnalysis();
   stopEval(); // 对局评估停流;回放条改由 analysisSnapshot 驱动
-  analysisPanel.classList.remove('hidden');
+  switchTab('analysis');
   refresh();
   scheduleAnalysis(); // 暂停态开始分析
 }
@@ -850,7 +894,7 @@ document.querySelector('#btn-resume')!.addEventListener('click', () => {
   const resumePos = replay.pos;
   stopAutoplay();
   stopAnalysis();
-  analysisPanel.classList.add('hidden');
+  switchTab('library');
   game.loadMoves(replay.lineMoves().slice(0, resumePos));
   mode = 'play';
   replay = null;
@@ -1029,7 +1073,7 @@ document.querySelector('#btn-undo')!.addEventListener('click', () => {
 document.querySelector('#btn-restart')!.addEventListener('click', () => {
   stopAutoplay();
   stopAnalysis();
-  analysisPanel.classList.add('hidden');
+  switchTab('library');
   mode = 'play';
   replay = null;
   game.restart();
@@ -1044,16 +1088,6 @@ new ResizeObserver(() => board.resize()).observe(canvas);
 board.resize();
 refresh();
 void renderLibrary();
-
-// ---- 面板折叠(移动端) ----
-const panelToggleBtn = document.querySelector<HTMLButtonElement>('#btn-panel-toggle')!;
-const libraryEl = document.querySelector<HTMLElement>('.library')!;
-panelToggleBtn.addEventListener('click', () => {
-  libraryEl.classList.toggle('collapsed');
-  panelToggleBtn.textContent = libraryEl.classList.contains('collapsed') ? '展开面板' : '收起面板';
-  // 折叠为即时布局变化,立即重算棋盘
-  board.resize();
-});
 
 // ---- AI 服务面板(远端模型管理与状态) ----
 const serviceConnEl = document.querySelector<HTMLSpanElement>('#service-conn')!;
