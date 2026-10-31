@@ -10,9 +10,11 @@ import type {
   AnalyzeRequest,
   ModelActionResponse,
   ModelsResponse,
+  ServiceStatus,
   ThinkRequest,
 } from '../src/engine/remote/protocol.ts';
 import type { EngineManager, EngineLike } from './engine/manager.ts';
+import { isLoopback, isSameOrigin } from './security.ts';
 
 export interface ApiDeps {
   manager: EngineManager;
@@ -20,6 +22,19 @@ export interface ApiDeps {
 }
 
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8' } as const;
+
+/** 抹掉状态里的本机绝对路径(外部请求只看运行状况) */
+function redactPaths(status: ServiceStatus): ServiceStatus {
+  return {
+    ...status,
+    config: {
+      ...status.config,
+      katagoPath: undefined,
+      modelDir: undefined,
+      humanModelPath: undefined,
+    },
+  };
+}
 
 export function sendJson(res: ServerResponse, status: number, body: unknown): void {
   const text = JSON.stringify(body);
@@ -75,10 +90,19 @@ export async function handleApi(
   const { pathname } = url;
   if (!pathname.startsWith('/api/')) return false;
   const method = req.method ?? 'GET';
+  const local = isLoopback(req);
+
+  // 浏览器带 Origin/Referer 的写请求必须同源,拦截第三方网站伪造请求
+  if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS' && !isSameOrigin(req)) {
+    sendError(res, 403, '拒绝跨站请求');
+    return true;
+  }
 
   try {
     if (method === 'GET' && pathname === '/api/health') {
-      sendJson(res, 200, deps.manager.health(deps.katagoVersion));
+      const health = deps.manager.health(deps.katagoVersion);
+      // 可执行文件绝对路径仅本机可见
+      sendJson(res, 200, local ? health : { ...health, katagoPath: undefined });
       return true;
     }
     if (method === 'GET' && pathname === '/api/models') {
@@ -90,7 +114,8 @@ export async function handleApi(
       return true;
     }
     if (method === 'GET' && pathname === '/api/status') {
-      sendJson(res, 200, deps.manager.status());
+      const status = deps.manager.status();
+      sendJson(res, 200, local ? status : redactPaths(status));
       return true;
     }
     if (method === 'POST') {

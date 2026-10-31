@@ -1150,11 +1150,23 @@ function renderServicePanel(): void {
 
   const { katagoPath, modelDir, humanModelPath, humanModelExists } = serviceStatus.config;
   // Human-SL 人类风格模型:缺失时 AI 对局自动回退普通搜索档位(visits/温度)
-  const humanLabel = humanModelExists ? '已加载' : humanModelPath ? '文件缺失,回退普通搜索' : '未配置';
-  const humanTitle = humanModelPath ?? '未配置(AI_HUMAN_MODEL / ai.config.json humanModelFile)';
+  // 后端对非本机请求屏蔽绝对路径,此时只显示状态结论
+  const hidden = katagoPath === undefined;
+  const humanLabel = humanModelExists
+    ? '已加载'
+    : humanModelPath
+      ? '文件缺失,回退普通搜索'
+      : hidden
+        ? '已配置'
+        : '未配置';
+  const humanTitle =
+    humanModelPath ?? (hidden ? '路径仅本机可见' : '未配置(AI_HUMAN_MODEL / ai.config.json humanModelFile)');
+  const pathText = hidden
+    ? '<span title="服务端对远程请求屏蔽本机路径">KataGo:运行中(路径仅本机可见)</span>'
+    : `<span title="${escapeHtml(katagoPath!)}">KataGo:${escapeHtml(katagoPath!)}</span>` +
+      `<span title="${escapeHtml(modelDir!)}">模型目录:${escapeHtml(modelDir!)}</span>`;
   servicePathsEl.innerHTML =
-    `<span title="${escapeHtml(katagoPath)}">KataGo:${escapeHtml(katagoPath)}</span>` +
-    `<span title="${escapeHtml(modelDir)}">模型目录:${escapeHtml(modelDir)}</span>` +
+    pathText +
     `<span title="${escapeHtml(humanTitle)}"${humanModelExists ? '' : ' class="svc-warn"'}>Human-SL:${humanLabel}</span>`;
 
   if (serviceModelList.length === 0) {

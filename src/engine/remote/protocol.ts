@@ -113,7 +113,8 @@ export interface ModelsResponse {
 
 export interface HealthResponse {
   ok: boolean;
-  katagoPath: string;
+  /** KataGo 可执行文件路径;仅本机(回环)请求返回 */
+  katagoPath?: string;
   katagoVersion: string | null;
   activeModel: string | null;
 }
@@ -131,10 +132,11 @@ export interface ServiceStatus {
   active: string | null;
   queue: QueueStatus;
   config: {
-    katagoPath: string;
-    modelDir: string;
+    /** 以下三个路径字段仅本机(回环)请求返回,外部请求为 undefined */
+    katagoPath?: string;
+    modelDir?: string;
     /** Human-SL 人类风格模型绝对路径(null 表示未配置) */
-    humanModelPath: string | null;
+    humanModelPath?: string | null;
     /** Human-SL 模型文件是否存在 */
     humanModelExists: boolean;
   };

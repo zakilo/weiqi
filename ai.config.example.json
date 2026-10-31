@@ -5,7 +5,7 @@
   "humanModelFile": "b18c384nbt-humanv0.bin.gz",
   "komi": 3.5,
   "port": 8080,
-  "host": "0.0.0.0",
+  "host": "127.0.0.1",
   "models": [
     {
       "id": "b18c384nbt",

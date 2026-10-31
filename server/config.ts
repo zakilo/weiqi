@@ -49,7 +49,8 @@ export interface ServerConfig {
 
 export const DEFAULT_CONFIG: ServerConfig = {
   port: 8080,
-  host: '0.0.0.0',
+  // 只监听回环:公网访问一律经 nginx / 隧道转发,避免 AI 接口被直连扫描
+  host: '127.0.0.1',
   katagoPath: 'katago',
   modelDir: './models',
   models: [],
@@ -147,6 +148,7 @@ export function loadConfig(options: LoadConfigOptions = {}): ServerConfig {
   if (env.KATAGO_PATH) merged.katagoPath = env.KATAGO_PATH;
   if (env.KATAGO_MODEL_DIR) merged.modelDir = env.KATAGO_MODEL_DIR;
   if (env.AI_PORT) merged.port = toNumber(env.AI_PORT, merged.port);
+  if (env.AI_HOST) merged.host = env.AI_HOST;
   if (env.AI_ACTIVE_MODEL) merged.activeModel = env.AI_ACTIVE_MODEL;
   // 空字符串表示禁用 human 模型
   if (env.AI_HUMAN_MODEL !== undefined) {
