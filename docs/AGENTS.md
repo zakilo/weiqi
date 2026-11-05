@@ -37,7 +37,7 @@
 | --- | --- |
 | `src/core/` | 与渲染无关的围棋核心:棋盘、规则、计分、Zobrist 哈希、SGF 解析/序列化 |
 | `src/engine/remote/` | **AI 路径**:`service-client`(HTTP 封装)、`remote-ai-player`、`remote-analysis`、`protocol`(共享类型) |
-| `src/store/` | 应用状态:对局状态机(`game`)、棋谱回放(`replay`)、IndexedDB 棋谱库(`db`)、SGF 导入导出(`game-io`) |
+| `src/store/` | 应用状态:对局状态机(`game`)、棋谱回放(`replay`)、棋谱库(`game-library` 走服务端 `/api/games`;`local-db` 为遗留 IndexedDB,仅供迁移)、SGF 导入导出(`game-io`) |
 | `src/ui/` | Canvas 棋盘渲染器(`board-renderer`) |
 | `src/main.ts` | 前端入口:构建 DOM、绑定事件、驱动对弈/回放/分析/服务面板 |
 | `server/` | **Node 后端**:`config`(配置)、`engine/*`(坐标、协议、KataGo 进程、实例、编排)、`api`/`http`/`static`/`index` |
@@ -111,7 +111,8 @@
 - 优先级:**环境变量 > `ai.config.json` > 内置默认值**(`server/config.ts` 的 `DEFAULT_CONFIG`)。
 - 配置文件默认读取项目根 `ai.config.json`(已 gitignore),可用 `AI_CONFIG` 指定路径;模板见 [`ai.config.example.json`](../ai.config.example.json)。
 - 支持的环境变量覆盖:`KATAGO_PATH`、`KATAGO_MODEL_DIR`、`AI_PORT`、`AI_ACTIVE_MODEL`、`AI_HUMAN_MODEL`(空字符串禁用 human 模型)、`AI_CONFIG`。
-- 相对路径(`modelDir` 等)基于**项目根**解析(`ROOT_DIR` = `server/` 的上一级)。
+- 相对路径(`modelDir`、`gamesFile` 等)基于**项目根**解析(`ROOT_DIR` = `server/` 的上一级)。
+- 棋谱库落盘在 `data/games.json`(已 gitignore);Vite 代理必须保持 `changeOrigin: false`,否则后端会把局域网来源的 POST 判成跨站并返回 403。
 - `humanModelFile`:Human-SL 人类风格模型(相对 `modelDir` 或绝对路径,默认 `b18c384nbt-humanv0.bin.gz`;`null` 禁用);文件存在时进程追加 `-human-model` 参数,否则 AI 对局回退普通搜索档位。
 - 关键运行参数:`maxVisitsDefault`、`numAnalysisThreads`、`numSearchThreads`、`nnMaxBatchSize`、`reportDuringSearchEvery`、`analysisPVLen` 会写入临时 KataGo analysis 配置;`maxInFlightPerEngine` / `maxQueuePerEngine` / `queueTimeoutMs` / `requestTimeoutMs` 控制并发与限流。
 - 未安装 KataGo 或未配置模型时,服务仍会启动,AI 功能以「未就绪」降级,本地功能(双人/SGF/回放)不受影响。
@@ -128,6 +129,9 @@
 | `POST` | `/api/models/:id/activate` | 设为默认激活模型并加载 |
 | `POST` | `/api/ai/think` | 单次落子,返回 JSON |
 | `POST` | `/api/ai/analyze` | NDJSON 流 |
+| `GET` | `/api/games` | 棋谱列表(摘要,不含 SGF 正文) |
+| `POST` | `/api/games` | 新建棋谱;`dedupe:true` 时同谱跳过(供旧 IndexedDB 迁移) |
+| `GET` / `DELETE` | `/api/games/:id` | 读取全文 / 删除 |
 
 错误码约定:队列满(`QueueFullError`)→ `429`;未知模型 → `404`;请求体非法 → `400`;其余 → `500`。
 非 `/api/*` 请求回退到 `dist/` 静态托管(`server/static.ts`,含路径穿越防护与 SPA 回退到 `index.html`)。

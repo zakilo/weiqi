@@ -14,11 +14,16 @@ import type {
   ThinkRequest,
 } from '../src/engine/remote/protocol.ts';
 import type { EngineManager, EngineLike } from './engine/manager.ts';
+import type { GameStore } from './games.ts';
+import { GameInputError } from './games.ts';
+import type { NewGame } from './games.ts';
 import { isLoopback, isSameOrigin } from './security.ts';
 
 export interface ApiDeps {
   manager: EngineManager;
   katagoVersion: string | null;
+  /** 棋谱库(服务端落盘,替代按来源隔离的 IndexedDB) */
+  games: GameStore;
 }
 
 const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8' } as const;
@@ -35,6 +40,9 @@ function redactPaths(status: ServiceStatus): ServiceStatus {
     },
   };
 }
+
+/** 客户端请求本身有问题(体积超限、JSON 非法等),统一映射为 400 */
+export class BadRequestError extends Error {}
 
 export function sendJson(res: ServerResponse, status: number, body: unknown): void {
   const text = JSON.stringify(body);
@@ -57,7 +65,7 @@ export function readJsonBody(req: IncomingMessage, limit = 4 * 1024 * 1024): Pro
     req.on('data', (chunk: Buffer) => {
       size += chunk.length;
       if (size > limit) {
-        reject(new Error('请求体过大'));
+        reject(new BadRequestError('请求体过大'));
         req.destroy();
         return;
       }
@@ -71,7 +79,7 @@ export function readJsonBody(req: IncomingMessage, limit = 4 * 1024 * 1024): Pro
       try {
         resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
       } catch {
-        reject(new Error('请求体不是合法 JSON'));
+        reject(new BadRequestError('请求体不是合法 JSON'));
       }
     });
     req.on('error', (err) => reject(err instanceof Error ? err : new Error(String(err))));
@@ -113,6 +121,34 @@ export async function handleApi(
       sendJson(res, 200, body);
       return true;
     }
+    if (method === 'GET' && pathname === '/api/games') {
+      sendJson(res, 200, { games: deps.games.list() });
+      return true;
+    }
+    if (method === 'GET') {
+      const gameMatch = /^\/api\/games\/(\d+)$/.exec(pathname);
+      if (gameMatch) {
+        const game = deps.games.get(Number(gameMatch[1]));
+        if (!game) {
+          sendError(res, 404, '棋谱不存在');
+          return true;
+        }
+        sendJson(res, 200, { game });
+        return true;
+      }
+    }
+    if (method === 'DELETE') {
+      const gameMatch = /^\/api\/games\/(\d+)$/.exec(pathname);
+      if (gameMatch) {
+        const removed = deps.games.remove(Number(gameMatch[1]));
+        if (!removed) {
+          sendError(res, 404, '棋谱不存在');
+          return true;
+        }
+        sendJson(res, 200, { ok: true });
+        return true;
+      }
+    }
     if (method === 'GET' && pathname === '/api/status') {
       const status = deps.manager.status();
       sendJson(res, 200, local ? status : redactPaths(status));
@@ -134,11 +170,23 @@ export async function handleApi(
         await handleAnalyze(req, res, deps.manager);
         return true;
       }
+      if (pathname === '/api/games') {
+        await handleGameCreate(req, res, deps.games);
+        return true;
+      }
     }
     sendError(res, 404, `未找到接口 ${method} ${pathname}`);
     return true;
   } catch (e) {
     const error = e instanceof Error ? e : new Error(String(e));
+    if (error instanceof BadRequestError) {
+      sendError(res, 400, error.message);
+      return true;
+    }
+    if (error instanceof GameInputError) {
+      sendError(res, 400, error.message);
+      return true;
+    }
     if (error.name === 'QueueFullError') {
       sendError(res, 429, error.message);
       return true;
@@ -150,6 +198,27 @@ export async function handleApi(
     sendError(res, 500, error.message);
     return true;
   }
+}
+
+/**
+ * 写入棋谱。body.dedupe=true(旧 IndexedDB 迁移)时同谱已存在则跳过,
+ * 保证迁移可反复执行而不产生副本。
+ */
+async function handleGameCreate(req: IncomingMessage, res: ServerResponse, store: GameStore): Promise<void> {
+  const body = await readJsonBody(req);
+  if (!body || typeof body !== 'object') {
+    sendError(res, 400, '请求体缺失或非法');
+    return;
+  }
+  const input = body as Record<string, unknown>;
+  const game: NewGame = {
+    name: typeof input.name === 'string' ? input.name : '',
+    sgfText: typeof input.sgfText === 'string' ? input.sgfText : '',
+    moveCount: typeof input.moveCount === 'number' ? input.moveCount : undefined,
+    createdAt: typeof input.createdAt === 'number' ? input.createdAt : undefined,
+  };
+  const result = input.dedupe === true ? store.addUnique(game) : store.add(game);
+  sendJson(res, 200, { game: result.game, duplicated: result.duplicated });
 }
 
 async function handleModelAction(

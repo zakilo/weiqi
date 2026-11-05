@@ -4,7 +4,7 @@ import { BoardRenderer, COLUMN_LABELS, type RenderState } from './ui/board-rende
 import { Game } from './store/game';
 import { exportGameSgf, exportLineSgf, parseSgfToLine } from './store/game-io';
 import { SgfLineMove } from './core/sgf';
-import { deleteGame, getGame, listGames, saveGame } from './store/db';
+import { deleteGame, getGame, listGames, migrateLocalGames, saveGame } from './store/game-library';
 import { Replay } from './store/replay';
 import { KOMI_AREA, scoreGame } from './core/scoring';
 import { ServiceClient } from './engine/remote/service-client';
@@ -917,7 +917,18 @@ function timeText(ts: number): string {
 }
 
 async function renderLibrary(): Promise<void> {
-  const rows = await listGames();
+  let rows: Awaited<ReturnType<typeof listGames>>;
+  try {
+    rows = await listGames();
+  } catch (e) {
+    // 服务端不可达时给出可操作的提示,而不是留下空白列表
+    gameListEl.innerHTML = '';
+    const li = document.createElement('li');
+    li.className = 'g-empty';
+    li.textContent = `棋谱库加载失败:${e instanceof Error ? e.message : String(e)}`;
+    gameListEl.appendChild(li);
+    return;
+  }
   gameListEl.innerHTML = '';
   if (rows.length === 0) {
     const li = document.createElement('li');
@@ -946,8 +957,13 @@ async function renderLibrary(): Promise<void> {
     });
     delBtn.addEventListener('click', async (e) => {
       e.stopPropagation();
-      await deleteGame(g.id);
-      messageEl.textContent = `已删除「${g.name}」`;
+      try {
+        await deleteGame(g.id);
+        messageEl.textContent = `已删除「${g.name}」`;
+      } catch (err) {
+        messageEl.textContent = `删除失败:${err instanceof Error ? err.message : String(err)}`;
+        return;
+      }
       void renderLibrary();
     });
 
@@ -958,7 +974,13 @@ async function renderLibrary(): Promise<void> {
 
 /** 从棋谱库打开并进入回放 */
 async function openSavedGame(id: number): Promise<void> {
-  const rec = await getGame(id);
+  let rec: Awaited<ReturnType<typeof getGame>>;
+  try {
+    rec = await getGame(id);
+  } catch (e) {
+    messageEl.textContent = `打开失败:${e instanceof Error ? e.message : String(e)}`;
+    return;
+  }
   if (!rec) {
     messageEl.textContent = '棋谱不存在,可能已被删除';
     return;
@@ -989,7 +1011,12 @@ document.querySelector('#btn-save')!.addEventListener('click', async () => {
   const count = isReplay ? lineMoves!.length : game.moveCount;
   const now = new Date();
   const name = `对局 ${timeText(now.getTime())}`;
-  await saveGame({ name, sgfText: text, moveCount: count, createdAt: now.getTime() });
+  try {
+    await saveGame({ name, sgfText: text, moveCount: count, createdAt: now.getTime() });
+  } catch (e) {
+    messageEl.textContent = `保存失败:${e instanceof Error ? e.message : String(e)}`;
+    return;
+  }
   messageEl.textContent = `「${name}」(${count} 手)已存入棋谱库`;
   void renderLibrary();
 });
@@ -1087,7 +1114,17 @@ document.querySelector('#btn-restart')!.addEventListener('click', () => {
 new ResizeObserver(() => board.resize()).observe(canvas);
 board.resize();
 refresh();
-void renderLibrary();
+
+// 旧版浏览器棋谱(按来源隔离的 IndexedDB)一次性上传到服务端,之后所有设备共用一份列表
+void (async () => {
+  const result = await migrateLocalGames();
+  if (result.error) messageEl.textContent = result.error;
+  else if (result.migrated > 0) {
+    messageEl.textContent = `已迁移 ${result.migrated} 局旧棋谱到服务端` +
+      (result.skipped > 0 ? `(另 ${result.skipped} 局已存在)` : '');
+  }
+  await renderLibrary();
+})();
 
 // ---- AI 服务面板(远端模型管理与状态) ----
 const serviceConnEl = document.querySelector<HTMLSpanElement>('#service-conn')!;

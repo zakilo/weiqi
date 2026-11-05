@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { deleteGame, getGame, listGames, saveGame } from '../src/store/db';
+import { deleteGame, getGame, listGames, saveGame } from '../src/store/local-db';
 
 const SGF_A = '(;GM[1]SZ[19];B[aa];W[bb])';
 const SGF_B = '(;GM[1]SZ[19];B[cc];W[dd];B[ee])';
@@ -9,7 +9,7 @@ beforeEach(async () => {
   indexedDB = new IDBFactory();
 });
 
-describe('IndexedDB 棋谱库', () => {
+describe('旧版 IndexedDB 棋谱库(迁移数据源)', () => {
   it('保存后可列出与读取,按时间倒序', async () => {
     const idA = await saveGame({ name: '对局A', sgfText: SGF_A, moveCount: 2, createdAt: 1000 });
     const idB = await saveGame({ name: '对局B', sgfText: SGF_B, moveCount: 3, createdAt: 2000 });

@@ -1,4 +1,9 @@
-/** 已保存棋谱记录 */
+/**
+ * 旧版棋谱库:浏览器 IndexedDB(按「协议+主机+端口」隔离,换地址或换设备就是另一份数据)。
+ * 现已由服务端 /api/games 承担存储(src/store/game-library.ts),
+ * 本模块只保留给一次性迁移读取,不要再往里面写新数据。
+ */
+
 export interface SavedGame {
   /** 自增主键 */
   id: number;

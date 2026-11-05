@@ -109,6 +109,7 @@ index.ts
 | `maxQueuePerEngine` | `8` | 单实例排队上限 |
 | `queueTimeoutMs` | `60000` | 排队等待超时 |
 | `requestTimeoutMs` | `120000` | 单次查询超时 |
+| `gamesFile` | `'./data/games.json'` | 棋谱库落盘文件（相对路径基于项目根解析；env `AI_GAMES_FILE`） |
 
 - `ROOT_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..')`（即 `server/` 的上一级，项目根）。
 - **优先级：环境变量 > `ai.config.json` > 内置默认值**。配置文件默认取项目根 `ai.config.json`，可用 `AI_CONFIG` 指定路径。
@@ -134,9 +135,20 @@ index.ts
 | `POST` | `/api/models/:id/activate` | 设为默认激活模型，并 `ensure()` 加载 |
 | `POST` | `/api/ai/think` | 单次落子，返回 JSON |
 | `POST` | `/api/ai/analyze` | **NDJSON 流**，逐行快照 |
+| `GET` | `/api/games` | `{ games:[{id,name,moveCount,createdAt}] }`（不含 SGF 正文） |
+| `POST` | `/api/games` | 新建棋谱 `{name,sgfText,moveCount?,createdAt?,dedupe?}` → `{game,duplicated}`；`dedupe:true` 时同谱跳过（迁移幂等） |
+| `GET` | `/api/games/:id` | `{ game }` 含 `sgfText`；不存在 → `404` |
+| `DELETE` | `/api/games/:id` | 删除；不存在 → `404` |
 
 - 辅助函数：`readJsonBody(req, limit = 4MB)`、`sendJson`、`sendError`。
-- **错误码映射**：`error.name === 'QueueFullError'` → `429`；`error.message` 以 `未知模型` 开头 → `404`；请求体非法 → `400`；其余 → `500`。
+- **错误码映射**：`error.name === 'QueueFullError'` → `429`；`error.message` 以 `未知模型` 开头 → `404`；`BadRequestError`（请求体过大 / JSON 非法）与 `GameInputError`（名称为空、正文为空或超 2MB）→ `400`；其余 → `500`。
+
+### 6.3 棋谱库 `games.ts`
+
+- `GameStore` 整文件读写：构造时一次载入，每次变更以「临时文件 + rename」原子替换，顶层结构 `{ nextId, games }`（旧的裸数组格式仍可读）。
+- `nextId` 持久化：删除末局后不会复用其 id，避免过期客户端误开/误删他局。
+- 按 `sha1(sgfText.trim())` 建哈希索引，`addUnique()` 用于迁移去重；`add()` 允许同谱重复保存（与旧 IndexedDB 行为一致）。
+- 文件损坏时改名为 `games.json.corrupt-<ts>` 后重建空库；单条坏记录跳过而不整库作废。
 
 ### 6.3 NDJSON 流式分析（`handleAnalyze`）
 

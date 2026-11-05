@@ -4,7 +4,11 @@
 import { describe, expect, it } from 'vitest';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { isLoopback, isSameOrigin } from '../server/security.ts';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { handleApi } from '../server/api.ts';
+import { GameStore } from '../server/games.ts';
 import type { EngineManager } from '../server/engine/manager.ts';
 import type { ServiceStatus } from '../src/engine/remote/protocol.ts';
 
@@ -71,7 +75,8 @@ const manager = {
 async function call(request: IncomingMessage, path: string) {
   const { res, sent } = fakeRes();
   const url = new URL(path, `http://${request.headers.host}`);
-  const handled = await handleApi(request, res, url, { manager, katagoVersion: 'KataGo v1.18.2' });
+  const games = new GameStore(join(mkdtempSync(join(tmpdir(), 'weiqi-security-')), 'games.json'));
+  const handled = await handleApi(request, res, url, { manager, katagoVersion: 'KataGo v1.18.2', games });
   return { handled, ...sent() };
 }
 

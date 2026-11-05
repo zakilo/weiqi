@@ -18,7 +18,7 @@ Node 后端 (server/)  ── spawn ──▶  katago analysis(JSON 行协议,�
 - **19×19 对弈**:完整围棋规则——气、提子、打劫、禁着点、双方虚着终局,默认中国规则数子(贴 3.75 子)
 - **人机对弈**:AI 执黑 / AI 执白 / 双人三种模式,20级 至 业余1段 共 21 档难度(经本机 AI 服务推理;
   加载 Human-SL 人类风格模型后按对应段位的**人类棋风**采样,未加载则回退访问量/温度近似)
-- **棋谱库**:对局保存为 SGF、SGF 导入导出,棋谱存储在浏览器 IndexedDB
+- **棋谱库**:对局保存为 SGF、SGF 导入导出,棋谱存在服务端 `data/games.json`,手机与电脑共用同一份列表
 - **棋谱回放**:逐步 / 跳转 / 自动播放,可从棋谱任一手"继续对弈"
 - **回放 AI 分析**:回放暂停时自动分析当前局面,展示候选着法(胜率 + 访问量);
   点击候选可查看 15 步变化线(半透明棋子 + 步序编号)
@@ -38,7 +38,7 @@ Node 后端 (server/)  ── spawn ──▶  katago analysis(JSON 行协议,�
 - **模块划分**:
   - `src/core/` — 棋盘、规则、计分、Zobrist、SGF 解析
   - `src/engine/remote/` — **服务客户端**:`service-client`(HTTP 封装)、`remote-ai-player`、`remote-analysis`、`protocol`(共享类型)
-  - `src/store/` — 对局、棋谱回放、IndexedDB
+  - `src/store/` — 对局、棋谱回放、棋谱库(服务端 `/api/games`)
   - `src/ui/` — Canvas 棋盘渲染(含候选标记与变化线)
   - `server/` — **Node 后端**:`config`、`engine/*`(坐标、协议、KataGo 进程、实例、编排)、`api`/`http`/`static`/`index`
 

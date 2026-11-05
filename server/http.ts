@@ -3,6 +3,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { handleApi } from './api.ts';
+import type { GameStore } from './games.ts';
 import type { ServerConfig } from './config.ts';
 import type { EngineManager } from './engine/manager.ts';
 import { serveStatic } from './static.ts';
@@ -13,12 +14,18 @@ export interface HandlerDeps {
   katagoVersion: string | null;
   /** dist/ 目录绝对路径 */
   distDir: string;
+  /** 棋谱库存储 */
+  games: GameStore;
 }
 
 export function createRequestHandler(deps: HandlerDeps): (req: IncomingMessage, res: ServerResponse) => void {
   return (req, res) => {
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
-    handleApi(req, res, url, { manager: deps.manager, katagoVersion: deps.katagoVersion })
+    handleApi(req, res, url, {
+      manager: deps.manager,
+      katagoVersion: deps.katagoVersion,
+      games: deps.games,
+    })
       .then((handled) => {
         if (handled) return;
         serveStatic(deps.distDir, url.pathname, res);

@@ -45,6 +45,8 @@ export interface ServerConfig {
   queueTimeoutMs: number;
   /** 单次查询超时(ms) */
   requestTimeoutMs: number;
+  /** 棋谱库落盘文件(相对项目根或绝对路径) */
+  gamesFile: string;
 }
 
 export const DEFAULT_CONFIG: ServerConfig = {
@@ -67,6 +69,7 @@ export const DEFAULT_CONFIG: ServerConfig = {
   maxQueuePerEngine: 8,
   queueTimeoutMs: 60_000,
   requestTimeoutMs: 120_000,
+  gamesFile: './data/games.json',
 };
 
 /** 项目根目录(server/ 的上一级) */
@@ -142,6 +145,7 @@ export function loadConfig(options: LoadConfigOptions = {}): ServerConfig {
     maxQueuePerEngine: toNumber(file.maxQueuePerEngine, DEFAULT_CONFIG.maxQueuePerEngine),
     queueTimeoutMs: toNumber(file.queueTimeoutMs, DEFAULT_CONFIG.queueTimeoutMs),
     requestTimeoutMs: toNumber(file.requestTimeoutMs, DEFAULT_CONFIG.requestTimeoutMs),
+    gamesFile: typeof file.gamesFile === 'string' ? file.gamesFile : DEFAULT_CONFIG.gamesFile,
   };
 
   // 环境变量覆盖
@@ -155,8 +159,13 @@ export function loadConfig(options: LoadConfigOptions = {}): ServerConfig {
     merged.humanModelFile = env.AI_HUMAN_MODEL === '' ? null : env.AI_HUMAN_MODEL;
   }
 
+  if (env.AI_GAMES_FILE) merged.gamesFile = env.AI_GAMES_FILE;
+
   // 相对路径基于项目根解析
   merged.modelDir = isAbsolute(merged.modelDir) ? merged.modelDir : resolve(rootDir, merged.modelDir);
+  merged.gamesFile = isAbsolute(merged.gamesFile)
+    ? merged.gamesFile
+    : resolve(rootDir, merged.gamesFile);
 
   return merged;
 }

@@ -8,6 +8,7 @@ import { resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { ROOT_DIR, loadConfig } from './config.ts';
 import { EngineManager } from './engine/manager.ts';
+import { GameStore } from './games.ts';
 import { createRequestHandler } from './http.ts';
 
 const execFileAsync = promisify(execFile);
@@ -29,7 +30,8 @@ async function main(): Promise<void> {
   const katagoVersion = await probeKatagoVersion(config.katagoPath);
   const distDir = resolve(ROOT_DIR, 'dist');
 
-  const handler = createRequestHandler({ manager, config, katagoVersion, distDir });
+  const games = new GameStore(config.gamesFile);
+  const handler = createRequestHandler({ manager, config, katagoVersion, distDir, games });
   const server = createServer(handler);
 
   await new Promise<void>((resolveListen) => {
@@ -37,6 +39,7 @@ async function main(): Promise<void> {
       console.log(`[weiqi] AI 服务已启动: http://${config.host}:${config.port}`);
       console.log(`[weiqi] KataGo: ${config.katagoPath}${katagoVersion ? ` (${katagoVersion})` : ' [未检测到]'}`);
       console.log(`[weiqi] 模型目录: ${config.modelDir}`);
+      console.log(`[weiqi] 棋谱库: ${config.gamesFile}(${games.size} 局)`);
       if (config.models.length === 0) {
         console.warn('[weiqi] 未配置任何模型,请在 ai.config.json 中填写 models');
       }

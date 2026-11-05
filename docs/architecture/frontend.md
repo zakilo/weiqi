@@ -33,7 +33,8 @@
 | `src/core/sgf.ts` | SGF 解析 / 序列化（节点树、主线提取、终局元数据） |
 | `src/store/game.ts` | 对局状态机：落子、虚着、悔棋、终局、从手顺导入 |
 | `src/store/replay.ts` | 棋谱回放：预计算每步快照，支持 O(1) 跳转 |
-| `src/store/db.ts` | IndexedDB 棋谱库（保存 / 列表 / 读取 / 删除） |
+| `src/store/game-library.ts` | 棋谱库客户端：读写走服务端 `/api/games`，含旧数据迁移 `migrateLocalGames()` |
+| `src/store/local-db.ts` | 遗留的浏览器 IndexedDB 存储，仅供一次性迁移读取 |
 | `src/store/game-io.ts` | 对局 ↔ SGF 文本的导入导出粘合层 |
 | `src/engine/remote/protocol.ts` | **前后端共享纯类型契约**（仅类型，无运行时产物） |
 | `src/engine/remote/service-client.ts` | HTTP 客户端：封装 `/api/*` 调用（含 NDJSON 流解析） |
@@ -109,11 +110,13 @@ AI 走子/分析 ──▶ engine/remote/* ──HTTP──▶ 后端 server/
 - `Replay`（私有构造，`static fromMoves(moves)`）：加载时逐手重放并预计算 `boards[]` / `lastPlays[]`（虚着共享前一快照）；**非法手处截断**；含打劫校验。
 - 方法：`pos` / `moveCount` / `lineMoves()` / `board()` / `lastPlayPos()` / `nextStone()` / `recentMoves(n)` / `prevHash()` / `isAtStart()` / `isAtEnd()` / `goto(pos)` / `step(delta)` / `start()` / `end()`。跳转为 O(1)。
 
-### 6.3 棋谱库 `db.ts`
+### 6.3 棋谱库 `game-library.ts`
 
-- `SavedGame { id, name, sgfText, moveCount, createdAt }`。
-- 常量：`DB_NAME = 'weiqi'`、`DB_VERSION = 2`、`STORE_NAME = 'games'`、`MODEL_STORE = 'model-blobs'`（后者为遗留模型缓存表）。
-- `openDb()`（`onupgradeneeded` 建表）、`listGames()`（按 `createdAt` 倒序）、`saveGame()`、`getGame()`、`deleteGame()`。
+- `SavedGame { id, name, sgfText, moveCount, createdAt }`；`listGames()` 返回不含 `sgfText` 的摘要，打开时再 `getGame(id)` 取全文。
+- 存储放服务端而非浏览器的原因：IndexedDB 按「协议+主机+端口」隔离，`localhost` / 局域网 IP / `.local` / 公网域名各存一份，换地址就像棋谱丢了。
+- 服务端错误文案（如 `棋谱名称不能为空`）直接作为 `Error.message` 抛给界面；`getGame` 对 `404 棋谱不存在` 返回 `undefined`。
+- `migrateLocalGames()`：把 `local-db`（IndexedDB）里的旧棋谱逐条 `POST /api/games` 并带 `dedupe:true`，因此可反复执行而不产生副本；本地数据保留不删，失败只回报不抛异常。
+- 遗留表常量：`DB_NAME = 'weiqi'`、`DB_VERSION = 2`、`STORE_NAME = 'games'`。
 
 ### 6.4 SGF 粘合 `game-io.ts`
 
