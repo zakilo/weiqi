@@ -15,6 +15,7 @@ import {
   remoteLevelOf,
 } from './engine/remote/remote-ai-player';
 import { RemoteAnalysisClient, type RemoteAnalysisState } from './engine/remote/remote-analysis';
+import { probeService } from './engine/remote/service-probe';
 import { blackEvalOf, leadText } from './engine/remote/eval';
 import type {
   AnalyzeSnapshot,
@@ -1153,23 +1154,38 @@ function mb(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-/** 轮询服务状态并刷新面板 */
+let serviceFailStreak = 0;
+let serviceLastError = '';
+
+function setConnBadge(connected: boolean): void {
+  serviceConnEl.textContent = connected ? '已连接' : '未连接';
+  serviceConnEl.classList.toggle('badge-ok', connected);
+  serviceConnEl.classList.toggle('badge-err', !connected);
+}
+
+/**
+ * 轮询服务状态并刷新面板。
+ * 单次失败(移动端 keep-alive 死套接字等抖动)只重试、不改变连接状态;
+ * 连续两次探测失败才判定断联,避免每次落子后界面闪几秒"未连接"。
+ */
 async function refreshService(): Promise<void> {
-  try {
-    const [models, status] = await Promise.all([serviceClient.models(), serviceClient.status()]);
-    serviceModelList = models.models;
-    serviceStatus = status;
+  const probe = await probeService(serviceClient);
+  if (probe.ok) {
+    serviceFailStreak = 0;
+    serviceLastError = '';
+    serviceModelList = probe.models ?? [];
+    serviceStatus = probe.status ?? null;
     aiPlayer.setReady(true);
-    serviceConnEl.textContent = '已连接';
-    serviceConnEl.classList.add('badge-ok');
-    serviceConnEl.classList.remove('badge-err');
-  } catch {
-    serviceStatus = null;
-    serviceModelList = [];
-    aiPlayer.setReady(false);
-    serviceConnEl.textContent = '未连接';
-    serviceConnEl.classList.add('badge-err');
-    serviceConnEl.classList.remove('badge-ok');
+    setConnBadge(true);
+  } else {
+    serviceFailStreak++;
+    serviceLastError = probe.error || '未知错误';
+    if (serviceFailStreak >= 2) {
+      serviceStatus = null;
+      serviceModelList = [];
+      aiPlayer.setReady(false);
+      setConnBadge(false);
+    }
   }
   renderServicePanel();
 }
@@ -1180,7 +1196,9 @@ function renderServicePanel(): void {
     servicePathsEl.textContent = '';
     const li = document.createElement('li');
     li.className = 'g-empty';
-    li.textContent = 'AI 服务不可用:请先启动后端(node server/index.ts)并配置 ai.config.json';
+    li.textContent = serviceLastError
+      ? `AI 服务不可用:${serviceLastError}(连续 2 次探测失败);请确认后端已启动(node server/index.ts)`
+      : 'AI 服务不可用:请先启动后端(node server/index.ts)并配置 ai.config.json';
     serviceModelsEl.appendChild(li);
     return;
   }
