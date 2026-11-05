@@ -20,20 +20,10 @@ describe('棋盘布局度量', () => {
     }
   });
 
-  it('坐标文字与收边线不重叠,收边线在最外圈网格线外侧', () => {
+  it('坐标文字整体落在最外圈网格线外侧的坐标带内', () => {
     for (const view of VIEWS) {
       const m = boardMetrics(view);
-      const halfText = m.labelFont / 2;
-      expect(m.labelEdge + halfText).toBeLessThan(m.border);
-      expect(m.border).toBeLessThan(m.padding);
-    }
-  });
-
-  it('收边线关于画布居中(上下左右同余量)', () => {
-    for (const view of VIEWS) {
-      const m = boardMetrics(view);
-      const size = 18 * m.cell + 2 * (m.padding - m.border);
-      expect(m.border + size).toBeCloseTo(view - m.border, 6);
+      expect(m.labelEdge + m.labelFont / 2).toBeLessThan(m.padding);
     }
   });
 });

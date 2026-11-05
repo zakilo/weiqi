@@ -38,8 +38,6 @@ export interface BoardMetrics {
   cell: number;
   /** 最外圈网格线到画布边缘的距离(px) */
   padding: number;
-  /** 收边线到边缘的距离(px) */
-  border: number;
   /** 坐标文字中心到边缘的距离(px) */
   labelEdge: number;
   /** 坐标字号(px) */
@@ -47,22 +45,16 @@ export interface BoardMetrics {
 }
 
 /**
- * 19 条线 18 个间隔,首尾各留 2 格:
- * 外圈坐标带(padding 以外的环)里,文字居中于 labelEdge,收边线在更内侧,
- * 保证任何画布宽度下都不会出现“线压字 / 字被裁切”。
+ * 19 条线 18 个间隔,首尾各留 1.25 格给坐标标注:
+ * 文字中心在 labelEdge,完全落在 padding 以内,
+ * 保证任何画布宽度下坐标都不会被画布边缘裁切。
  */
 export function boardMetrics(view: number): BoardMetrics {
-  const cell = view / (BOARD_SIZE - 1 + 4);
-  const padding = cell * 2;
+  const cell = view / (BOARD_SIZE - 1 + 2.5);
+  const padding = cell * 1.25;
   // 字号随画布缩放(小屏下限同样按比例,保证文字永远落在坐标带内)
   const labelFont = Math.max(cell * 0.32, Math.min(8, view / 44));
-  return {
-    cell,
-    padding,
-    border: padding - cell * 0.95,
-    labelEdge: cell * 0.45,
-    labelFont,
-  };
+  return { cell, padding, labelEdge: cell * 0.45, labelFont };
 }
 
 /** Canvas 棋盘渲染器:木纹盘面、网格线、星位、坐标标注 */
@@ -72,10 +64,8 @@ export class BoardRenderer {
   private viewSize = 0;
   /** 线间距(px) */
   private cell = 0;
-  /** 边缘留白(px,覆盖坐标标注) */
+  /** 边缘留白(px,容纳坐标标注) */
   private padding = 0;
-  /** 收边线到边缘的距离(px) */
-  private borderInset = 0;
   /** 坐标文字中心到边缘的距离(px) */
   private labelEdge = 0;
   /** 坐标字号(px) */
@@ -104,11 +94,10 @@ export class BoardRenderer {
     this.canvas.width = Math.round(view * dpr);
     this.canvas.height = Math.round(view * dpr);
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    // 布局度量集中在 boardMetrics(),保证坐标与外框线互不遮挡
+    // 布局度量集中在 boardMetrics(),保证坐标标注不被裁切
     const m = boardMetrics(view);
     this.cell = m.cell;
     this.padding = m.padding;
-    this.borderInset = m.border;
     this.labelEdge = m.labelEdge;
     this.labelFont = m.labelFont;
     this.render();
@@ -131,7 +120,7 @@ export class BoardRenderer {
 
   /** 渲染完整盘面(空棋盘) */
   render(): void {
-    const { ctx, viewSize, cell, padding } = this;
+    const { ctx, viewSize } = this;
     ctx.clearRect(0, 0, viewSize, viewSize);
 
     this.drawWood();
@@ -142,12 +131,6 @@ export class BoardRenderer {
       this.drawState(this.state);
       if (this.state.analysis) this.drawAnalysis(this.state.analysis);
     }
-
-    // 收边线:位于坐标标注与最外圈网格线之间
-    const span = cell * (BOARD_SIZE - 1);
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = '#8a6a3b';
-    ctx.strokeRect(this.borderInset, this.borderInset, span + (padding - this.borderInset) * 2, span + (padding - this.borderInset) * 2);
   }
 
   /** 棋子、最后一手标记、悬停预览 */
