@@ -13,7 +13,15 @@ for c in "$HOME/weiqi-nginx/bin/nginx" /usr/local/bin/nginx /opt/homebrew/bin/ng
   if [ -x "$c" ]; then NGINX_BIN="$c"; break; fi
 done
 if [ -z "$NGINX_BIN" ]; then
-  echo "[deploy] 未找到 nginx。安装见 deploy/README.md"
+  echo "[deploy] 未找到 nginx。本机 Intel macOS 无法用 brew 安装(无预编译包且 GitHub 源被网络中断),"
+  echo "         源码安装步骤(nginx.org 可达,无需 sudo,不含 PCRE 故禁用 rewrite 模块):"
+  echo "           curl -sL -o /tmp/nginx.tar.gz https://nginx.org/download/nginx-1.27.4.tar.gz"
+  echo "           tar xzf /tmp/nginx.tar.gz -C /tmp && cd /tmp/nginx-1.27.4"
+  echo "           ./configure --prefix=\$HOME/weiqi-nginx --sbin-path=\$HOME/weiqi-nginx/bin/nginx \\"
+  echo "             --conf-path=\$HOME/weiqi-nginx/nginx.conf --pid-path=\$HOME/weiqi-nginx/logs/nginx.pid \\"
+  echo "             --error-log-path=\$HOME/weiqi-nginx/logs/error.log --http-log-path=\$HOME/weiqi-nginx/logs/access.log \\"
+  echo "             --without-http_rewrite_module --with-http_stub_status_module --with-threads"
+  echo "           make -j4 && make install"
   exit 1
 fi
 if [ "$NGINX_BIN" = "$HOME/weiqi-nginx/bin/nginx" ]; then
@@ -29,23 +37,32 @@ CRED_FILE="$HOME/weiqi-nginx/conf.d/credentials.txt"
 # 1. 前端产物
 cd "$PROJECT_DIR" && npm run build
 
-# 2. AI 服务:只应监听 127.0.0.1;需要重启或绑定不对时重新拉起
+# 2. AI 服务:优先交给 launchd 常驻(开机自启、异常自动拉起)
+AI_LABEL="com.weiqi.aiservice"
+AI_PLIST="$HOME/Library/LaunchAgents/$AI_LABEL.plist"
 SERVICE_LISTEN=$(lsof -iTCP:8080 -sTCP:LISTEN -P 2>/dev/null | awk 'NR==2{print $9}' || true)
-if [ "$RESTART_SERVICE" = 1 ] && [ -n "$SERVICE_LISTEN" ]; then
-  pkill -f "node server/index.ts" 2>/dev/null || true
+launchctl kickstart -k "gui/$(id -u)/$AI_LABEL" 2>/dev/null || true
+if [ -f "$AI_PLIST" ] && launchctl print "gui/$(id -u)/$AI_LABEL" >/dev/null 2>&1; then
+  # kickstart 后端口需要一两秒回来,轮询确认再报告
+  for _ in $(seq 1 15); do
+    SERVICE_LISTEN=$(lsof -iTCP:8080 -sTCP:LISTEN -P 2>/dev/null | awk 'NR==2{print $9}' || true)
+    [ -n "$SERVICE_LISTEN" ] && break
+    sleep 1
+  done
+  echo "[deploy] AI 服务由 launchd 常驻:$SERVICE_LISTEN"
+elif [ -z "$SERVICE_LISTEN" ] || [ "$RESTART_SERVICE" = 1 ]; then
+  # 兜底:未装 LaunchAgent 时前台后台拉起一次(重启机器不会自动恢复)
+  pkill -f "weiqi/server/index.ts" 2>/dev/null || true
   sleep 1
-  SERVICE_LISTEN=""
-fi
-if [ -z "$SERVICE_LISTEN" ]; then
   nohup node server/index.ts > /tmp/weiqi-server.log 2>&1 &
-  sleep 2
-  echo "[deploy] AI 服务已启动: $(lsof -iTCP:8080 -sTCP:LISTEN -P 2>/dev/null | awk 'NR==2{print $9}')"
-elif echo "$SERVICE_LISTEN" | grep -q '\*'; then
-  echo "[deploy] 检测到 AI 服务监听所有网卡($SERVICE_LISTEN),正在按新配置重启"
-  bash "$0" --restart
-  exit $?
+  sleep 3
+  echo "[deploy] AI 服务已启动(nohup): $(lsof -iTCP:8080 -sTCP:LISTEN -P 2>/dev/null | awk 'NR==2{print $9}')"
+  echo "[deploy] 提示:建议改用 launchd 常驻,重启后才会自动恢复"
 else
-  echo "[deploy] AI 服务已在 $SERVICE_LISTEN 运行,跳过"
+  echo "[deploy] AI 服务已在 $SERVICE_LISTEN 运行"
+fi
+if echo "${SERVICE_LISTEN:-}" | grep -q '^\*'; then
+  echo "[deploy] 警告:AI 服务监听在所有网卡,请检查 ai.config.json 的 host 应为 127.0.0.1"
 fi
 
 # 3. 站点配置 include 进 http{}（只加一次,插在最后一个顶格 } 之前）
