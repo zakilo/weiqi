@@ -95,7 +95,7 @@ body {
   background: #5d4c36;
 }
 
-/* 开关类按钮的激活态(如形势判断) */
+/* 开关类按钮的激活态(如 AI 提示、点目) */
 .btn.active {
   background: #4a3b28;
   border-color: #4a3b28;
@@ -483,7 +483,7 @@ body {
   background: #f2e9d8;
 }
 
-/* 形势判断评估条 */
+/* 评估条(仅回放模式显示) */
 .eval-bar {
   display: flex;
   align-items: center;

@@ -54,12 +54,11 @@ app.innerHTML = `
         ${levelOptions}
       </select>
       <button id="btn-undo" class="btn">悔棋</button>
-      <button id="btn-resign" class="btn" title="认输结束对局">认输</button>
       <button id="btn-count" class="btn" title="点目(AI 自动判定死子并结算)">点目</button>
-      <button id="btn-eval" class="btn" title="形势判断(实时评估)">形势</button>
       <button id="btn-hint" class="btn" title="AI 提示(显示推荐候选点)">提示</button>
       <button id="btn-restart" class="btn primary">新对局</button>
     </div>
+    <!-- 评估条:仅回放模式自动显示(对局侧无开关按钮) -->
     <div id="eval-bar" class="eval-bar hidden"></div>
     <div id="count-panel" class="count-panel hidden">
       <div class="count-title">点目 · AI 自动标记死子(虚线半透明)</div>
@@ -181,9 +180,8 @@ const analysisStatusEl = document.querySelector<HTMLSpanElement>('#analysis-stat
 const candidateListEl = document.querySelector<HTMLUListElement>('#candidate-list')!;
 const variationListEl = document.querySelector<HTMLDivElement>('#variation-list')!;
 
-/** 对局评估流:形势判断评估条与 AI 提示候选点共享同一流与快照(回放模式复用 analysisSnapshot) */
+/** 对局评估流:供 AI 提示候选点使用(回放另有 analysisSnapshot) */
 const evalClient = new RemoteAnalysisClient(serviceClient);
-let evalEnabled = false;
 /** AI 提示开关:在盘面显示推荐候选点 */
 let hintEnabled = false;
 let evalSnapshot: AnalyzeSnapshot | null = null;
@@ -193,7 +191,6 @@ let evalTimer: ReturnType<typeof setTimeout> | null = null;
 /** AI 思考中:评估暂停,保留上次数值 */
 let evalPaused = false;
 const evalBarEl = document.querySelector<HTMLDivElement>('#eval-bar')!;
-const evalButtonEl = document.querySelector<HTMLButtonElement>('#btn-eval')!;
 const hintButtonEl = document.querySelector<HTMLButtonElement>('#btn-hint')!;
 
 /** 点目模式:标记死子并预览结算,确认后以此结果结束对局 */
@@ -371,7 +368,6 @@ function refresh(): void {
   const replayControls = document.querySelector<HTMLDivElement>('#replay-controls')!;
   const playButtons = [
     document.querySelector<HTMLButtonElement>('#btn-undo')!,
-    document.querySelector<HTMLButtonElement>('#btn-resign')!,
     hintButtonEl, // AI 提示仅在窗口期可用(回放候选由回放分析流驱动)
   ];
   if (mode === 'replay' && replay) {
@@ -609,21 +605,16 @@ candidateListEl.addEventListener('click', (e) => {
   refresh();
 });
 
-// ---- 对局评估流(形势判断评估条 + AI 提示候选点) ----
+// ---- 对局评估流(AI 提示候选点) ----
 
-/** 是否需要对局评估流(任一开关开启即需要;两开关共享同一流与快照) */
+/** 是否需要对局评估流:仅由 AI 提示开关驱动 */
 function evalWanted(): boolean {
-  return evalEnabled || hintEnabled;
+  return hintEnabled;
 }
 
-/** 评估错误反馈:评估条开启时写条内,否则提示到消息栏 */
+/** 评估错误反馈:统一提示到消息栏 */
 function evalError(message: string): void {
-  if (evalEnabled) {
-    evalBarEl.classList.remove('hidden');
-    evalBarEl.textContent = message;
-  } else {
-    messageEl.textContent = message;
-  }
+  messageEl.textContent = message;
 }
 
 /** 当前对局局面的评估请求(从空盘起的完整手顺 + komi) */
@@ -687,31 +678,24 @@ evalClient.callbacks.onError = (message) => {
   evalError(`对局分析失败:${message}`);
 };
 
-/** 渲染评估条:对局读 evalSnapshot,回放读回放分析流 analysisSnapshot */
+/** 渲染评估条:仅回放模式自动显示,数据来自回放分析流 analysisSnapshot */
 function renderEvalBar(): void {
-  const inPlay = mode === 'play';
-  if (!evalEnabled || (inPlay && game.isFinished)) {
+  if (mode !== 'replay' || !replay) {
     evalBarEl.classList.add('hidden');
     return;
   }
   evalBarEl.classList.remove('hidden');
-  const snapshot = inPlay ? (evalFor === evalSignature() ? evalSnapshot : null) : analysisSnapshot;
-  let toMove: 'B' | 'W' | null = null;
-  if (inPlay) {
-    toMove = game.currentStone === BLACK ? 'B' : 'W';
-  } else if (replay) {
-    toMove = replay.nextStone() === BLACK ? 'B' : 'W';
-  }
-  const paused = inPlay && evalPaused ? ' · AI 思考中' : '';
-  if (!snapshot || toMove === null) {
-    evalBarEl.textContent = `形势判断中…${paused}`;
+  const snapshot = analysisSnapshot;
+  if (!snapshot) {
+    evalBarEl.textContent = 'AI 分析中…';
     return;
   }
+  const toMove = replay.nextStone() === BLACK ? 'B' : 'W';
   const { blackWinRate, blackLead } = blackEvalOf(snapshot, toMove);
   const percent = (blackWinRate * 100).toFixed(1);
   evalBarEl.innerHTML =
     `<div class="eval-track" title="黑胜率 ${percent}%"><span class="eval-black" style="width:${(blackWinRate * 100).toFixed(2)}%"></span></div>` +
-    `<span class="eval-text">黑 ${percent}% · ${leadText(blackLead)} · ${snapshot.playouts} 次推理${paused}</span>`;
+    `<span class="eval-text">黑 ${percent}% · ${leadText(blackLead)} · ${snapshot.playouts} 次推理</span>`;
 }
 
 // 点击落子(仅对弈模式)
@@ -739,20 +723,6 @@ canvas.addEventListener('mousemove', (e) => {
 canvas.addEventListener('mouseleave', () => {
   if (mode !== 'play') return;
   ghost = null;
-  refresh();
-});
-
-// 认输
-document.querySelector('#btn-resign')!.addEventListener('click', () => {
-  if (game.isFinished) return;
-  if (aiPlayer.thinking) {
-    messageEl.textContent = 'AI 思考中,请稍候';
-    return;
-  }
-  const resigner = game.currentStone;
-  const { winner } = game.resign();
-  messageEl.textContent = `${stoneName(resigner)}认输,${stoneName(winner)}胜`;
-  stopEval();
   refresh();
 });
 
@@ -809,15 +779,7 @@ levelSelect.addEventListener('change', () => {
   messageEl.textContent = `AI 难度:${levelSelect.options[levelSelect.selectedIndex]?.text ?? ''}`;
 });
 
-// ---- 形势判断 / AI 提示开关 ----
-evalButtonEl.addEventListener('click', () => {
-  evalEnabled = !evalEnabled;
-  evalButtonEl.classList.toggle('active', evalEnabled);
-  messageEl.textContent = `形势判断:${evalEnabled ? '开' : '关'}`;
-  if (!evalWanted()) stopEval(); // 另一开关仍开启时保留评估流
-  refresh();
-  if (evalWanted()) scheduleEval(); // 回放模式无需请求(复用回放分析流)
-});
+// ---- AI 提示开关 ----
 hintButtonEl.addEventListener('click', () => {
   hintEnabled = !hintEnabled;
   hintButtonEl.classList.toggle('active', hintEnabled);

@@ -65,8 +65,8 @@
 - `think` / `analyze` 请求体携带**从空盘起的完整手顺** `moves: { stone:'B'|'W'; pos:number|null }[]`,以及 `komi`、`rules:'chinese'`,可加 `maxVisits`;`think` 另可加 `maxTemperature`。
 - 请求体字段 `model?: string` 指定目标模型,缺省用当前激活模型。
 - `think` 返回单次 JSON:`{ move, winRate, scoreLead, visits }`(`winRate`/`scoreLead` 为行棋方视角)。
-- `analyze` 返回 **NDJSON 流**,每行一个 `AnalyzeSnapshot`:`{ playouts, rootValue, rootScoreLead, bestMove, candidates[] }`;`rootValue`/`rootScoreLead` 为**行棋方视角**(形势判断统一换算为黑方视角);`candidate.pv` 为主线变化(棋盘索引),**变化线直接来自响应,无需单独请求**。
-- 客户端断开(AbortController)即取消分析并释放引擎槽位;对局中开启形势判断时,AI 思考前会主动取消评估流以释放槽位,思考结束后自动恢复。
+- `analyze` 返回 **NDJSON 流**,每行一个 `AnalyzeSnapshot`:`{ playouts, rootValue, rootScoreLead, bestMove, candidates[] }`;`rootValue`/`rootScoreLead` 为**行棋方视角**(胜率条统一换算为黑方视角);`candidate.pv` 为主线变化(棋盘索引),**变化线直接来自响应,无需单独请求**。
+- 客户端断开(AbortController)即取消分析并释放引擎槽位;对局中开启 AI 提示时,AI 思考前会主动取消评估流以释放槽位,思考结束后自动恢复。
 
 ### 4.3 计分与规则
 
