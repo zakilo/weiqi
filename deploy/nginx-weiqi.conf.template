@@ -1,6 +1,15 @@
-# 围棋 AI 服务 — nginx 站点配置
+# 围棋 AI 服务 — nginx 站点配置模板
 # 由主 nginx.conf 的 http{} 末尾 include 进来(因此本文件顶部可写 http 级指令)
 # 对外入口:仅 80。整站 Basic Auth,后端只监听 127.0.0.1:8080
+#
+# 本文件是「模板」:含占位符,不能直接被 nginx 使用。
+# 执行 `bash deploy/start.sh` 会把它渲染成 deploy/nginx-weiqi.local.conf(已 gitignore),
+# 主配置 include 的是渲染后的那份。占位符:
+#   __PROJECT_DIR__  项目绝对路径(前端 dist 所在)
+#   __NGINX_HOME__   nginx 前缀目录(存放 conf.d/weiqi.passwd 与 logs/)
+# 也可以手动替换:
+#   sed -e "s|__PROJECT_DIR__|$(pwd)|" -e "s|__NGINX_HOME__|$HOME/weiqi-nginx|" \
+#       deploy/nginx-weiqi.conf.template > deploy/nginx-weiqi.local.conf
 
 # 客户端真实来源:隧道接入后所有请求的 socket 地址都是 127.0.0.1,
 # 因此优先取 Cloudflare 的 CF-Connecting-IP(隧道是唯一公网入站路径,该头无法被外部伪造);
@@ -23,15 +32,15 @@ server {
     server_tokens off;
 
     # 前端构建产物
-    root /path/to/weiqi/dist;
+    root __PROJECT_DIR__/dist;
     index index.html;
 
     # 整站口令(与访问者共用一组;密码文件在项目仓库之外)
     auth_basic           "围棋对局";
-    auth_basic_user_file ~/weiqi-nginx/conf.d/weiqi.passwd;
+    auth_basic_user_file __NGINX_HOME__/conf.d/weiqi.passwd;
 
-    access_log ~/weiqi-nginx/logs/site.access.log;
-    error_log  ~/weiqi-nginx/logs/site.error.log warn;
+    access_log __NGINX_HOME__/logs/site.access.log;
+    error_log  __NGINX_HOME__/logs/site.error.log warn;
 
     gzip on;
     gzip_types text/css application/javascript application/json image/svg+xml;
@@ -87,7 +96,7 @@ server {
         add_header Cache-Control "public, immutable";
     }
 
-    # 注:本机 nginx 编译时未带 PCRE,不能使用 `location ~` 正则;
+    # 注:源码编译若未带 PCRE,不能使用 `location ~` 正则;
     # dist/ 内无点文件,无需额外 deny
 
     location / {

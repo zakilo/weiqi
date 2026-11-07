@@ -26,13 +26,15 @@ if [ -z "$NGINX_BIN" ]; then
 fi
 if [ "$NGINX_BIN" = "$HOME/weiqi-nginx/bin/nginx" ]; then
   MAIN_CONF="$HOME/weiqi-nginx/nginx.conf"
+  NGINX_HOME="$HOME/weiqi-nginx"
 else
-  MAIN_CONF="$(dirname "$(dirname "$NGINX_BIN")")/etc/nginx/nginx.conf"
+  NGINX_HOME="$(dirname "$(dirname "$NGINX_BIN")")"
+  MAIN_CONF="$NGINX_HOME/etc/nginx/nginx.conf"
 fi
 [ -f "$MAIN_CONF" ] || { echo "[deploy] 找不到主配置 $MAIN_CONF"; exit 1; }
 
-PASSWD_FILE="$HOME/weiqi-nginx/conf.d/weiqi.passwd"
-CRED_FILE="$HOME/weiqi-nginx/conf.d/credentials.txt"
+PASSWD_FILE="$NGINX_HOME/conf.d/weiqi.passwd"
+CRED_FILE="$NGINX_HOME/conf.d/credentials.txt"
 
 # 1. 前端产物
 cd "$PROJECT_DIR" && npm run build
@@ -65,12 +67,24 @@ if echo "${SERVICE_LISTEN:-}" | grep -q '^\*'; then
   echo "[deploy] 警告:AI 服务监听在所有网卡,请检查 ai.config.json 的 host 应为 127.0.0.1"
 fi
 
-# 3. 站点配置 include 进 http{}（只加一次,插在最后一个顶格 } 之前）
-if ! grep -q "nginx-weiqi.conf" "$MAIN_CONF"; then
-  awk -v inc="    include $PROJECT_DIR/deploy/nginx-weiqi.conf;" '
+# 3. 渲染站点配置(模板 → 本机路径,产物不入库)并 include 进 http{}
+SITE_CONF="$PROJECT_DIR/deploy/nginx-weiqi.local.conf"
+sed -e "s|__PROJECT_DIR__|$PROJECT_DIR|g" -e "s|__NGINX_HOME__|$NGINX_HOME|g" \
+  "$PROJECT_DIR/deploy/nginx-weiqi.conf.template" > "$SITE_CONF"
+mkdir -p "$NGINX_HOME/logs"
+echo "[deploy] 已渲染站点配置:$SITE_CONF"
+
+# 迁移:老版本直接把带绝对路径的 deploy/nginx-weiqi.conf include 进了主配置
+if grep -q "deploy/nginx-weiqi\.local\.conf" "$MAIN_CONF"; then
+  :
+elif grep -q "nginx-weiqi\.conf" "$MAIN_CONF"; then
+  sed -i '' "s|nginx-weiqi\.conf;|nginx-weiqi.local.conf;|" "$MAIN_CONF"
+  echo "[deploy] 主配置 include 已切换到渲染后的配置"
+else
+  awk -v inc="    include $SITE_CONF;" '
     { lines[NR] = $0; if ($0 == "}") last = NR }
     END {
-      if (!last) { print "[deploy] 主配置未找到 http 块结尾,请手动 include" > "/dev/stderr"; exit 1 }
+      if (!last) { print "[deploy] 主配置未找到 http 块结尾,请手动 include " inc > "/dev/stderr"; exit 1 }
       lines[last] = inc "\n" lines[last]
       for (i = 1; i <= NR; i++) print lines[i]
     }

@@ -16,6 +16,11 @@ out/
 ai.config.json
 models/
 
+# 由 deploy/nginx-weiqi.conf.template 渲染出的本机路径配置(含用户名/绝对路径)
+deploy/nginx-weiqi.local.conf
+deploy/*passwd*
+deploy/credentials*
+
 
 # 日志
 logs/
