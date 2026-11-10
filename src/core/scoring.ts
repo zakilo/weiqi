@@ -23,35 +23,25 @@ export interface ScoreResult {
   winner: Stone;
 }
 
-/**
- * 中国规则数子结算:
- * 1. 移除标记的死子
- * 2. 统计双方棋子数
- * 3. 空点染色:仅邻黑为黑空,仅邻白为白空,混合为中立
- * 4. 黑 = 子 + 黑空;白 = 子 + 白空 + 贴子
- */
-export function scoreGame(
-  board: Board,
-  deadStones: readonly number[] = [],
-  komi: number = KOMI_AREA,
-): ScoreResult {
+/** 空域归属:按点索引给出黑空 / 白空 / 中立(用于盘面标记,与结算同源) */
+export interface TerritoryMap {
+  black: number[];
+  white: number[];
+  neutral: number[];
+}
+
+/** 移除死子后的盘面(不改动原盘) */
+function clearedBoard(board: Board, deadStones: readonly number[]): Board {
   const b = board.clone();
   for (const i of deadStones) {
     b.clear(i);
   }
+  return b;
+}
 
-  let blackStones = 0;
-  let whiteStones = 0;
-  for (let i = 0; i < BOARD_SIZE * BOARD_SIZE; i++) {
-    const v = b.get(i);
-    if (v === BLACK) blackStones++;
-    else if (v === WHITE) whiteStones++;
-  }
-
-  // 空域染色
-  let blackTerritory = 0;
-  let whiteTerritory = 0;
-  let neutral = 0;
+/** 空点染色:仅邻黑为黑空,仅邻白为白空,混合为中立 */
+function classifyTerritory(b: Board): TerritoryMap {
+  const map: TerritoryMap = { black: [], white: [], neutral: [] };
   const seen = new Uint8Array(BOARD_SIZE * BOARD_SIZE);
   for (let i = 0; i < BOARD_SIZE * BOARD_SIZE; i++) {
     if (b.get(i) !== EMPTY || seen[i]) continue;
@@ -83,10 +73,45 @@ export function scoreGame(
         }
       }
     }
-    if (touchesBlack && !touchesWhite) blackTerritory += region.length;
-    else if (!touchesBlack && touchesWhite) whiteTerritory += region.length;
-    else neutral += region.length;
+    if (touchesBlack && !touchesWhite) map.black.push(...region);
+    else if (!touchesBlack && touchesWhite) map.white.push(...region);
+    else map.neutral.push(...region);
   }
+  return map;
+}
+
+/** 盘面上的空域归属(点索引),供点目时标记黑白围空;与 scoreGame 同源 */
+export function territoryMap(board: Board, deadStones: readonly number[] = []): TerritoryMap {
+  return classifyTerritory(clearedBoard(board, deadStones));
+}
+
+/**
+ * 中国规则数子结算:
+ * 1. 移除标记的死子
+ * 2. 统计双方棋子数
+ * 3. 空点染色:仅邻黑为黑空,仅邻白为白空,混合为中立
+ * 4. 黑 = 子 + 黑空;白 = 子 + 白空 + 贴子
+ */
+export function scoreGame(
+  board: Board,
+  deadStones: readonly number[] = [],
+  komi: number = KOMI_AREA,
+): ScoreResult {
+  const b = clearedBoard(board, deadStones);
+
+  let blackStones = 0;
+  let whiteStones = 0;
+  for (let i = 0; i < BOARD_SIZE * BOARD_SIZE; i++) {
+    const v = b.get(i);
+    if (v === BLACK) blackStones++;
+    else if (v === WHITE) whiteStones++;
+  }
+
+  // 空域染色(与盘面标记共用同一实现,保证数字与标记一致)
+  const territory = classifyTerritory(b);
+  const blackTerritory = territory.black.length;
+  const whiteTerritory = territory.white.length;
+  const neutral = territory.neutral.length;
 
   const blackScore = blackStones + blackTerritory;
   const whiteScore = whiteStones + whiteTerritory + komi;

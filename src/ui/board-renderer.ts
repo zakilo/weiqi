@@ -1,4 +1,4 @@
-import { BLACK, Board, BOARD_SIZE, colOf, EMPTY, opponent, rowOf, Stone } from '../core/board';
+import { BLACK, Board, BOARD_SIZE, colOf, EMPTY, opponent, rowOf, Stone, WHITE } from '../core/board';
 
 /** 标准 19 路星位(0 起始,列, 行) */
 export const STAR_POINTS: ReadonlyArray<readonly [number, number]> = [
@@ -28,8 +28,10 @@ export interface RenderState {
     /** 变化线(含首手),与行棋方起始颜色 */
     variation?: { stone: Stone; moves: { pos: number; order: number }[] };
   };
-  /** 点目模式:标记为死子的位置(盘上画 X) */
+  /** 点目模式:标记为死子的位置(虚线半透明) */
   deadStones?: number[];
+  /** 点目模式:双方围空(空点标记方块) */
+  territory?: { black: number[]; white: number[] };
 }
 
 /** 盘面布局度量(纯函数,便于对窄屏做单测断言) */
@@ -129,6 +131,7 @@ export class BoardRenderer {
     this.drawCoordinates();
     if (this.state) {
       this.drawState(this.state);
+      if (this.state.territory) this.drawTerritory(this.state.territory);
       if (this.state.analysis) this.drawAnalysis(this.state.analysis);
     }
   }
@@ -159,6 +162,31 @@ export class BoardRenderer {
       const [x, y] = this.pointToPixel(colOf(ghost.pos), rowOf(ghost.pos));
       this.drawStone(x, y, ghost.stone, 0.55);
     }
+  }
+
+  /**
+   * 围空标记:实心黑方块 = 黑空,白底黑边方块 = 白空。
+   * 画在棋子之后,死子点上也能同时看到(半透明死子 + 归属方块)。
+   */
+  private drawTerritory(territory: NonNullable<RenderState['territory']>): void {
+    const { ctx, cell } = this;
+    const size = Math.max(cell * 0.22, 3);
+    const half = size / 2;
+    ctx.save();
+    ctx.lineWidth = Math.max(cell * 0.04, 1);
+    for (const [points, stone] of [
+      [territory.black, BLACK],
+      [territory.white, WHITE],
+    ] as const) {
+      for (const pos of points) {
+        const [x, y] = this.pointToPixel(colOf(pos), rowOf(pos));
+        ctx.fillStyle = stone === BLACK ? '#1a1a1a' : '#ffffff';
+        ctx.strokeStyle = stone === BLACK ? '#1a1a1a' : '#5a5040';
+        ctx.fillRect(x - half, y - half, size, size);
+        ctx.strokeRect(x - half, y - half, size, size);
+      }
+    }
+    ctx.restore();
   }
 
   /** 分析标记:候选点胜率圆标 + 变化线半透明棋子与编号 */

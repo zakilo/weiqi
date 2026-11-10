@@ -6,7 +6,7 @@ import { exportGameSgf, exportLineSgf, parseSgfToLine } from './store/game-io';
 import { SgfLineMove } from './core/sgf';
 import { deleteGame, getGame, listGames, migrateLocalGames, saveGame } from './store/game-library';
 import { Replay } from './store/replay';
-import { KOMI_AREA, scoreGame } from './core/scoring';
+import { KOMI_AREA, scoreGame, territoryMap } from './core/scoring';
 import { ServiceClient } from './engine/remote/service-client';
 import {
   RemoteAiPlayer,
@@ -61,7 +61,7 @@ app.innerHTML = `
     <!-- 评估条:仅回放模式自动显示(对局侧无开关按钮) -->
     <div id="eval-bar" class="eval-bar hidden"></div>
     <div id="count-panel" class="count-panel hidden">
-      <div class="count-title">点目 · AI 自动标记死子(虚线半透明)</div>
+      <div class="count-title">点目 · 死子(虚线半透明) · 围空(黑实心 / 白空心方块)</div>
       <div id="count-result" class="count-result"></div>
       <div id="count-actions" class="count-actions">
         <button id="btn-count-confirm" class="btn primary">确认以此结果结束</button>
@@ -357,12 +357,16 @@ function refresh(): void {
   }
   const displayBoard = mode === 'replay' && replay ? replay.board() : game.getBoard();
   const lastMove = mode === 'replay' && replay ? replay.lastPlayPos() : game.getLastPlayPos();
+  // 点目:除死子外,把双方围空也画到盘上(与结算同一套空点染色)
+  // 等 ownership 到达后再画,避免用"未剔除死子"的盘面给出错误归属
+  const territory = countingMode && countSnapshot?.ownership ? territoryMap(displayBoard, [...deadStones]) : null;
   board.setState({
     board: displayBoard,
     lastMove,
     ghost,
     analysis: boardAnalysis(),
     deadStones: countingMode ? [...deadStones] : undefined,
+    territory: territory ? { black: territory.black, white: territory.white } : undefined,
   });
 
   const replayControls = document.querySelector<HTMLDivElement>('#replay-controls')!;
@@ -424,10 +428,10 @@ function renderCountPanel(): void {
   const result = scoreGame(boardNow, [...deadStones], KOMI_AREA);
   const winnerText = result.margin >= 0 ? '黑胜' : '白胜';
   countResultEl.innerHTML = `
-    <span>黑:${result.blackScore.toFixed(2)} 子</span>
-    <span>白:${result.whiteScore.toFixed(2)} 子</span>
+    <span>黑:${result.blackScore.toFixed(2)} 子(子 ${result.blackStones} + 空 ${result.blackTerritory})</span>
+    <span>白:${result.whiteScore.toFixed(2)} 子(子 ${result.whiteStones} + 空 ${result.whiteTerritory} + 贴 ${KOMI_AREA})</span>
     <span class="winner">${winnerText} ${Math.abs(result.margin).toFixed(2)} 子</span>
-    <span class="dim">自动判定死子 ${deadStones.size} 枚</span>
+    <span class="dim">死子 ${deadStones.size} 枚 · 中立 ${result.neutral} 点</span>
   `;
 }
 
