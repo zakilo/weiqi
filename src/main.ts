@@ -16,7 +16,6 @@ import {
 } from './engine/remote/remote-ai-player';
 import { RemoteAnalysisClient, type RemoteAnalysisState } from './engine/remote/remote-analysis';
 import { probeService } from './engine/remote/service-probe';
-import { blackEvalOf, leadText } from './engine/remote/eval';
 import type {
   AnalyzeSnapshot,
   EngineStatus,
@@ -58,8 +57,6 @@ app.innerHTML = `
       <button id="btn-hint" class="btn" title="AI 提示(显示推荐候选点)">提示</button>
       <button id="btn-restart" class="btn primary">新对局</button>
     </div>
-    <!-- 评估条:仅回放模式自动显示(对局侧无开关按钮) -->
-    <div id="eval-bar" class="eval-bar hidden"></div>
     <div id="count-panel" class="count-panel hidden">
       <div class="count-title">点目 · 死子(虚线半透明) · 围空(黑实心 / 白空心方块)</div>
       <div id="count-result" class="count-result"></div>
@@ -190,7 +187,6 @@ let evalFor: string | null = null;
 let evalTimer: ReturnType<typeof setTimeout> | null = null;
 /** AI 思考中:评估暂停,保留上次数值 */
 let evalPaused = false;
-const evalBarEl = document.querySelector<HTMLDivElement>('#eval-bar')!;
 const hintButtonEl = document.querySelector<HTMLButtonElement>('#btn-hint')!;
 
 /** 点目模式:标记死子并预览结算,确认后以此结果结束对局 */
@@ -381,7 +377,6 @@ function refresh(): void {
     statusEl.textContent = '棋谱回放';
     resultPanel.classList.add('hidden');
     updateAutoplayButton();
-    renderEvalBar();
     renderCountPanel();
     return;
   }
@@ -408,7 +403,6 @@ function refresh(): void {
     resultPanel.classList.add('hidden');
   }
 
-  renderEvalBar();
   renderCountPanel();
 }
 
@@ -681,26 +675,6 @@ evalClient.callbacks.onSnapshot = (snap) => {
 evalClient.callbacks.onError = (message) => {
   evalError(`对局分析失败:${message}`);
 };
-
-/** 渲染评估条:仅回放模式自动显示,数据来自回放分析流 analysisSnapshot */
-function renderEvalBar(): void {
-  if (mode !== 'replay' || !replay) {
-    evalBarEl.classList.add('hidden');
-    return;
-  }
-  evalBarEl.classList.remove('hidden');
-  const snapshot = analysisSnapshot;
-  if (!snapshot) {
-    evalBarEl.textContent = 'AI 分析中…';
-    return;
-  }
-  const toMove = replay.nextStone() === BLACK ? 'B' : 'W';
-  const { blackWinRate, blackLead } = blackEvalOf(snapshot, toMove);
-  const percent = (blackWinRate * 100).toFixed(1);
-  evalBarEl.innerHTML =
-    `<div class="eval-track" title="黑胜率 ${percent}%"><span class="eval-black" style="width:${(blackWinRate * 100).toFixed(2)}%"></span></div>` +
-    `<span class="eval-text">黑 ${percent}% · ${leadText(blackLead)} · ${snapshot.playouts} 次推理</span>`;
-}
 
 // 点击落子(仅对弈模式)
 canvas.addEventListener('click', (e) => {

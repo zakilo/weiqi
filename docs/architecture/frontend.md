@@ -175,11 +175,11 @@ AI 走子/分析 ──▶ engine/remote/* ──HTTP──▶ 后端 server/
 - `analyze(state)`：先 `stop()` 再新建 `AbortController`（**新请求自动中止旧请求**）。
 - `stop()` / `dispose()` 中断；`callbacks { onSnapshot, onError? }`。
 
-### 7.5 AI 提示与回放胜率条（`eval.ts` + `main.ts`）
+### 7.5 AI 提示（`eval.ts` + `main.ts`）
 
 - 纯函数 `eval.ts`：`blackEvalOf(snapshot, toMove)` 把行棋方视角的 `rootValue`/`rootScoreLead` 换算为黑方视角 `{ blackWinRate, blackLead }`（白方行棋取 `1 - rootValue`、`-rootScoreLead`）；`leadText(blackLead)` 生成“黑/白领先 X.X 子”，`|lead| < 1` 为“形势接近”。
 - 双分析流数据通路：回放沿用现有 `analysisClient`（渲染 `analysisSnapshot`，不额外发请求）；对局走独立实例 `evalClient`，`evalState()` 从 `game.getMoves()` 构造请求（不传 `maxVisits`，用服务端默认）。
-- 对局侧只有一个开关：`hintEnabled`（工具栏“提示”，盘面候选圆标）驱动 `evalWanted()` 与评估流；顶部评估条 `renderEvalBar()` 只在回放模式自动显示，读回放分析流的 `analysisSnapshot`。
+- 只有一个开关：`hintEnabled`（工具栏“提示”，盘面候选圆标）驱动 `evalWanted()` 与评估流；`eval.ts` 的 `blackEvalOf` / `leadText` 保留为纯函数（胜率条已移除）。
 - 盘面叠加由 `boardAnalysis()` 统一构造：回放 = 分析流候选 + 变化线；对局 = 提示开关且快照未过期时的评估候选（`best` 标记最佳手为金色高亮）。盘上最多展示 `BOARD_CANDIDATE_LIMIT`（=10）个候选（候选已按访问量降序，取前 N；回放侧栏候选列表不受限）。`evalFor` 记录快照对应的局面签名，与当前不符时不显示（快照过期防护）；`startEval()` 将 `evalFor` 切到当前局面的同时把 `evalSnapshot` 置空，因为新快照返回前的请求窗口期内签名已匹配而旧数据仍在，不丢弃则落子后会先闪现上一局面的候选/数值。
 - 资源竞争：AI 思考前 `stopEval()` 取消评估流释放引擎槽位（`evalPaused` 标记，条上显示“· AI 思考中”、盘上候选隐藏），思考结束后 `scheduleEval()` 恢复；进入回放 `stopEval()` 改由回放分析流驱动，“提示”按钮在回放窗口期禁用；终局或两开关均关闭时停流。
 
@@ -194,7 +194,7 @@ AI 走子/分析 ──▶ engine/remote/* ──HTTP──▶ 后端 server/
 
 ### 8.2 入口 `main.ts`
 
-- 用**模板字符串一次性写入** `#app.innerHTML`（顶部工具栏、回放评估条、回放控件、对弈模式/难度、`#board` canvas、侧栏棋谱库 / AI 分析面板 / AI 服务面板、消息与结果面板），随后 `querySelector` 取节点并绑定事件。
+- 用**模板字符串一次性写入** `#app.innerHTML`（顶部工具栏、回放控件、对弈模式/难度、`#board` canvas、侧栏棋谱库 / AI 分析面板 / AI 服务面板、消息与结果面板），随后 `querySelector` 取节点并绑定事件。
 - 关键状态：`mode: 'play' | 'replay'`、`replay: Replay | null`、`autoplayTimer`、`vsMode: 'human' | 'ai-white' | 'ai-black'`、`ghost`、`serviceClient / aiPlayer / analysisClient`、`analysisSnapshot / variationLine / analysisTimer / analysisBackend`、`serviceStatus / serviceModelList`、`evalClient / evalEnabled / hintEnabled / evalSnapshot / evalFor / evalTimer / evalPaused`。
 - 关键函数：
   - `isAiTurn()` / `humanStone()`：判定当前是否 AI 回合、人类执子色；
@@ -204,7 +204,7 @@ AI 走子/分析 ──▶ engine/remote/* ──HTTP──▶ 后端 server/
   - `maybeAiMove()`：AI 思考并落子，`finally` 中递归调用以支持连续 AI 行棋；
   - `analysisState()`：把回放视角转成 `{ moves, komi: KOMI_AREA }`（从空盘起的完整手顺）；
   - `stopAnalysis()` / `scheduleAnalysis()`（250ms 防抖）/ `startAnalysis()`；
-  - `evalState()` / `renderEvalBar()` / `scheduleEval()`（250ms 防抖）/ `startEval()` / `stopEval()` / `evalWanted()`：对局评估流（AI 提示候选点 + 回放胜率条，见 §7.5）；
+  - `evalState()` / `renderEvalBar()` / `scheduleEval()`（250ms 防抖）/ `startEval()` / `stopEval()` / `evalWanted()`：对局评估流（AI 提示候选点，见 §7.5）；
   - `boardAnalysis()`：盘面分析叠加（回放候选+变化线；对局提示候选+最佳手标记）；
   - `renderCandidateList()` / `renderVariationList()`：候选与变化线渲染（点击候选取 `pv.slice(0, VARIATION_DEPTH)`）；
   - `enterReplay()` / `renderLibrary()` / `openSavedGame()`：回放与棋谱库；

@@ -483,19 +483,6 @@ body {
   background: #f2e9d8;
 }
 
-/* 评估条(仅回放模式显示) */
-.eval-bar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: min(94vw, 82vh + 264px);
-  padding: 6px 10px;
-  border: 1px solid #c9b998;
-  border-radius: 6px;
-  background: #fffdf7;
-  font-size: 13px;
-}
-
 /* 移动端适配(竖屏 < 768px) */
 @media (max-width: 768px) {
   .shell {
@@ -569,20 +556,9 @@ body {
     width: min(calc(100vw - 16px), calc(100dvh - 190px));
   }
 
-  /* 评估条:全宽 */
-  .eval-bar {
-    width: 100%;
-    font-size: 12px;
-    padding: 5px 8px;
-  }
-
   /* 点目面板:全宽 */
   .count-panel {
     width: 100%;
-  }
-
-  .eval-text {
-    font-size: 11px;
   }
 
   /* 回放控制条:居中换行 */
@@ -596,26 +572,6 @@ body {
     white-space: normal;
     word-break: break-all;
   }
-}
-
-.eval-track {
-  flex: 1;
-  height: 10px;
-  border-radius: 5px;
-  overflow: hidden;
-  background: #e9e2d2;
-  border: 1px solid #d8c8a8;
-}
-
-.eval-black {
-  display: block;
-  height: 100%;
-  background: #2b2620;
-}
-
-.eval-text {
-  white-space: nowrap;
-  color: #6b5636;
 }
 
 /* 提示与结果 */
